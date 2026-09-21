@@ -1,0 +1,88 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMestre(salaId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/salas/$(salaId)).data.mestreId == request.auth.uid;
+    }
+
+    match /salas/{salaId} {
+      // A sala so pode ser lida pelo ID (get). Listar todas as salas e proibido:
+      // o ID aleatorio funciona como convite/link secreto.
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && request.resource.data.mestreId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && (
+          resource.data.mestreId == request.auth.uid
+          || (
+            !resource.data.keys().hasAny(["mestreId"])
+            && request.resource.data.mestreId == request.auth.uid
+          )
+        );
+
+      allow delete: if false;
+
+      match /personagens/{personagemId} {
+        allow read: if isSignedIn();
+
+        allow create: if isSignedIn()
+          && request.resource.data.ownerId == request.auth.uid;
+
+        allow update: if isSignedIn()
+          && (
+            (
+              resource.data.ownerId == request.auth.uid
+              && request.resource.data.ownerId == resource.data.ownerId
+            )
+            || (
+              isMestre(salaId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["iniciativa"])
+            )
+          );
+
+        allow delete: if isSignedIn()
+          && resource.data.ownerId == request.auth.uid;
+      }
+
+      match /rolls/{rollId} {
+        allow read: if isSignedIn();
+
+        allow create: if isSignedIn()
+          && request.resource.data.userId == request.auth.uid;
+
+        allow update: if false;
+
+        allow delete: if isMestre(salaId);
+      }
+
+      match /extras/{extraId} {
+        allow read: if isSignedIn();
+
+        allow create: if isMestre(salaId)
+          && request.resource.data.createdBy == request.auth.uid;
+
+        allow update, delete: if isMestre(salaId);
+      }
+
+      match /jogadores/{userId} {
+        allow read: if isSignedIn();
+
+        allow create, update: if isSignedIn()
+          && userId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid;
+
+        allow delete: if isSignedIn()
+          && userId == request.auth.uid;
+      }
+    }
+  }
+}
