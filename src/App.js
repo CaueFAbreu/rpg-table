@@ -21,6 +21,12 @@ import NovoPersonagem from "./components/NovoPersonagem";
 import IniciativaTracker from "./components/IniciativaTracker";
 import { generateRoomId, normalizeRoomId } from "./utils/salas";
 import { arquivoParaDataUrlComprimido, COVER_MAX_SIZE } from "./utils/imagem";
+import {
+  estaOnline,
+  PRESENCE_HEARTBEAT_MS,
+  PRESENCE_MIN_GAP_MS,
+  PRESENCE_NAME_DEBOUNCE_MS
+} from "./utils/presenca";
 
 const DEFAULT_CAMPAIGN_NAME = "Nova Campanha";
 const ROOM_STORAGE_KEY = "rpg-table-room-id";
@@ -207,27 +213,54 @@ function App() {
   }, [authUser, salaId]);
 
  
-  useEffect(() => {
-    if (!isFirebaseConfigured || !currentUser || !salaId) return undefined;
+  const presenceUserId = currentUser?.id;
+  const presenceName = currentUser?.nome;
 
-    const playerRef = doc(db, "salas", salaId, "jogadores", currentUser.id);
+  // Presenca "preguicosa": ver src/utils/presenca.js para o motivo.
+  useEffect(() => {
+    if (!isFirebaseConfigured || !presenceUserId || !salaId) return undefined;
+
+    const playerRef = doc(db, "salas", salaId, "jogadores", presenceUserId);
+    let lastWrite = 0;
 
     function syncPresence() {
+      lastWrite = Date.now();
+
       return setDoc(playerRef, {
-        nome: currentUser.nome,
-        userId: currentUser.id,
+        nome: presenceName,
+        userId: presenceUserId,
         isMestre,
-        lastSeen: Date.now()
+        lastSeen: lastWrite
       }, { merge: true }).catch((error) => {
         console.error("Erro ao atualizar presenca:", error);
       });
     }
 
-    syncPresence();
-    const intervalId = window.setInterval(syncPresence, 60000);
+    // Espera o jogador parar de digitar o nome antes de gravar (evita uma gravacao por tecla).
+    const debounceId = window.setTimeout(syncPresence, PRESENCE_NAME_DEBOUNCE_MS);
 
-    return () => window.clearInterval(intervalId);
-  }, [currentUser, isMestre, salaId]);
+    // Batimento so com a aba visivel: celular no bolso nao gasta cota.
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") syncPresence();
+    }, PRESENCE_HEARTBEAT_MS);
+
+    function handleVisibilityChange() {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastWrite > PRESENCE_MIN_GAP_MS
+      ) {
+        syncPresence();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearTimeout(debounceId);
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [presenceUserId, presenceName, isMestre, salaId]);
 
  
   useEffect(() => {
@@ -977,7 +1010,7 @@ function App() {
             <h3 className="font-bold mb-3">Jogadores</h3>
             <div className="flex flex-col gap-2">
               {[...players].sort((a, b) => (b.isMestre ? 1 : 0) - (a.isMestre ? 1 : 0)).map((player) => {
-                const isRecent = Date.now() - (player.lastSeen || 0) < 120000;
+                const isRecent = estaOnline(player.lastSeen);
 
                 return (
                   <div
