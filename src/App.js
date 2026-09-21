@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { auth, db, firebaseConfigMissingKeys, isFirebaseConfigured } from "./firebase";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import {
@@ -19,8 +19,10 @@ import CharacterCard from "./components/CharacterCard";
 import DiceRoller from "./components/DiceRoller";
 import NovoPersonagem from "./components/NovoPersonagem";
 import IniciativaTracker from "./components/IniciativaTracker";
+import PainelMestre from "./components/PainelMestre";
 import { generateRoomId, normalizeRoomId } from "./utils/salas";
 import { arquivoParaDataUrlComprimido, COVER_MAX_SIZE } from "./utils/imagem";
+import { normalizarPontosMedo } from "./utils/medo";
 import {
   estaOnline,
   PRESENCE_HEARTBEAT_MS,
@@ -76,6 +78,10 @@ function App() {
   const [isEditingCampaignName, setIsEditingCampaignName] = useState(false);
   const [campaignNameDraft, setCampaignNameDraft] = useState("");
   const [carregando, setCarregando] = useState(true);
+  const [pontosMedo, setPontosMedo] = useState(0);
+  const [removidos, setRemovidos] = useState([]);
+  const [bloqueado, setBloqueado] = useState(false);
+  const wasBlockedRef = useRef(false);
   const [firebaseErro, setFirebaseErro] = useState(null);
 
   const currentUser = useMemo(() => {
@@ -131,6 +137,10 @@ function App() {
     setPlayers([]);
     setRolls([]);
     setActiveCharacterId(null);
+    setPontosMedo(0);
+    setRemovidos([]);
+    setBloqueado(false);
+    wasBlockedRef.current = false;
     setCarregando(true);
     setFirebaseErro(null);
   }, [salaId]);
@@ -158,7 +168,7 @@ function App() {
 
   
   useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId) return undefined;
+    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
 
     const unsub = onSnapshot(
       collection(db, "salas", salaId, "personagens"),
@@ -174,11 +184,11 @@ function App() {
       }
     );
     return () => unsub();
-  }, [authUser, salaId]);
+  }, [authUser, salaId, bloqueado]);
 
  
   useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId) return undefined;
+    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
 
     const unsub = onSnapshot(
       collection(db, "salas", salaId, "extras"),
@@ -192,11 +202,11 @@ function App() {
       }
     );
     return () => unsub();
-  }, [authUser, salaId]);
+  }, [authUser, salaId, bloqueado]);
 
  
   useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId) return undefined;
+    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
 
     const unsub = onSnapshot(
       collection(db, "salas", salaId, "jogadores"),
@@ -210,7 +220,7 @@ function App() {
       }
     );
     return () => unsub();
-  }, [authUser, salaId]);
+  }, [authUser, salaId, bloqueado]);
 
  
   const presenceUserId = currentUser?.id;
@@ -218,7 +228,7 @@ function App() {
 
   // Presenca "preguicosa": ver src/utils/presenca.js para o motivo.
   useEffect(() => {
-    if (!isFirebaseConfigured || !presenceUserId || !salaId) return undefined;
+    if (!isFirebaseConfigured || !presenceUserId || !salaId || bloqueado) return undefined;
 
     const playerRef = doc(db, "salas", salaId, "jogadores", presenceUserId);
     let lastWrite = 0;
@@ -260,11 +270,11 @@ function App() {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [presenceUserId, presenceName, isMestre, salaId]);
+  }, [presenceUserId, presenceName, isMestre, salaId, bloqueado]);
 
  
   useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId) return undefined;
+    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
 
     const q = query(
       collection(db, "salas", salaId, "rolls"),
@@ -283,11 +293,11 @@ function App() {
       }
     );
     return () => unsub();
-  }, [authUser, salaId]);
+  }, [authUser, salaId, bloqueado]);
 
   
   useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId) return undefined;
+    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
 
     const unsub = onSnapshot(
       doc(db, "salas", salaId),
@@ -302,9 +312,67 @@ function App() {
       }
     );
     return () => unsub();
-  }, [authUser, salaId]);
+  }, [authUser, salaId, bloqueado]);
 
  
+  // Este jogador foi removido pelo mestre? (documento salas/{sala}/bloqueados/{meuId})
+  useEffect(() => {
+    if (!isFirebaseConfigured || !authUser || !salaId) return undefined;
+
+    const unsub = onSnapshot(
+      doc(db, "salas", salaId, "bloqueados", authUser.uid),
+      (snapshot) => {
+        const foiRemovido = snapshot.exists();
+
+        // Foi readmitido: limpa os avisos de acesso negado da fase em que estava fora.
+        if (!foiRemovido && wasBlockedRef.current) setFirebaseErro(null);
+
+        wasBlockedRef.current = foiRemovido;
+        setBloqueado(foiRemovido);
+      },
+      (error) => {
+        console.warn("Nao foi possivel verificar se o jogador foi removido:", error);
+      }
+    );
+    return () => unsub();
+  }, [authUser, salaId]);
+
+  // Lista de removidos (somente o mestre le).
+  useEffect(() => {
+    if (!isFirebaseConfigured || !authUser || !salaId || !isMestre) return undefined;
+
+    const unsub = onSnapshot(
+      collection(db, "salas", salaId, "bloqueados"),
+      (snapshot) => {
+        setRemovidos(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      (error) => {
+        if (error?.code === "permission-denied") return;
+        console.error("Erro ao carregar removidos:", error);
+        setFirebaseErro(formatFirebaseError("Nao foi possivel carregar os jogadores removidos.", error));
+      }
+    );
+    return () => unsub();
+  }, [authUser, salaId, isMestre]);
+
+  // Pontos de Medo (somente o mestre le).
+  useEffect(() => {
+    if (!isFirebaseConfigured || !authUser || !salaId || !isMestre) return undefined;
+
+    const unsub = onSnapshot(
+      doc(db, "salas", salaId, "mestre", "medo"),
+      (snapshot) => {
+        setPontosMedo(snapshot.exists() ? snapshot.data().pontos ?? 0 : 0);
+      },
+      (error) => {
+        if (error?.code === "permission-denied") return;
+        console.error("Erro ao carregar pontos de medo:", error);
+        setFirebaseErro(formatFirebaseError("Nao foi possivel carregar os pontos de medo.", error));
+      }
+    );
+    return () => unsub();
+  }, [authUser, salaId, isMestre]);
+
   useEffect(() => {
     if (!currentUser) return;
 
@@ -632,6 +700,67 @@ function App() {
     }
   }
 
+  async function handleSetPontosMedo(valor) {
+    if (!currentUser || !isMestre) return;
+
+    const pontos = normalizarPontosMedo(valor);
+    if (pontos === null) return;
+
+    try {
+      await setDoc(doc(db, "salas", salaId, "mestre", "medo"), {
+        pontos,
+        updatedAt: Date.now()
+      }, { merge: true });
+    } catch (error) {
+      console.error("Erro ao atualizar pontos de medo:", error);
+      setFirebaseErro(formatFirebaseError("Nao foi possivel atualizar os pontos de medo.", error));
+    }
+  }
+
+  async function handleRemovePlayer(player) {
+    if (!currentUser || !isMestre || !player?.id || player.id === currentUser.id) return;
+
+    const nome = player.nome || "Jogador";
+    const personagensDele = characters.filter((char) => char.ownerId === player.id);
+    const total = personagensDele.length;
+
+    const aviso = total === 0
+      ? `Remover ${nome} da campanha?`
+      : `Remover ${nome} da campanha? ${total === 1 ? "O personagem dele tambem sera excluido" : `Os ${total} personagens dele tambem serao excluidos`}.`;
+
+    if (!window.confirm(aviso)) return;
+
+    try {
+      const batch = writeBatch(db);
+
+      batch.set(doc(db, "salas", salaId, "bloqueados", player.id), {
+        nome,
+        bloqueadoPor: currentUser.id,
+        bloqueadoEm: Date.now()
+      });
+      batch.delete(doc(db, "salas", salaId, "jogadores", player.id));
+      personagensDele.forEach((char) => {
+        batch.delete(doc(db, "salas", salaId, "personagens", char.id));
+      });
+
+      await batch.commit();
+    } catch (error) {
+      console.error("Erro ao remover jogador:", error);
+      setFirebaseErro(formatFirebaseError("Nao foi possivel remover o jogador.", error));
+    }
+  }
+
+  async function handleReadmitirJogador(playerId) {
+    if (!currentUser || !isMestre || !playerId) return;
+
+    try {
+      await deleteDoc(doc(db, "salas", salaId, "bloqueados", playerId));
+    } catch (error) {
+      console.error("Erro ao readmitir jogador:", error);
+      setFirebaseErro(formatFirebaseError("Nao foi possivel readmitir o jogador.", error));
+    }
+  }
+
   async function handleCreateRoom(e) {
     e.preventDefault();
     if (!currentUser || creatingRoom) return;
@@ -810,6 +939,26 @@ function App() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (bloqueado) {
+    return (
+      <div className="min-h-screen bg-[#250617] flex items-center justify-center p-4 text-white">
+        <div className="w-full max-w-md rounded-xl border border-red-500/40 bg-black/30 p-6 text-center">
+          <h1 className="mb-2 text-2xl font-bold">Voce foi removido desta sala</h1>
+          <p className="mb-6 text-sm text-gray-400">
+            O mestre removeu voce desta campanha. Se foi engano, peca para ele readmitir voce:
+            a sala volta sozinha, sem precisar recarregar.
+          </p>
+          <button
+            onClick={handleLeaveRoom}
+            className="w-full rounded-lg border border-[#b82870]/60 py-2.5 font-bold text-[#f0a3ca] transition hover:bg-[#b82870]/20"
+          >
+            Voltar ao lobby
+          </button>
         </div>
       </div>
     );
@@ -1006,6 +1155,15 @@ function App() {
             onResetInitiatives={handleResetInitiatives}
           />
 
+          {isMestre && (
+            <PainelMestre
+              pontosMedo={pontosMedo}
+              onSetPontosMedo={handleSetPontosMedo}
+              removidos={removidos}
+              onReadmitir={handleReadmitirJogador}
+            />
+          )}
+
           <div className="bg-black/20 border border-[#b82870]/30 rounded-xl p-4">
             <h3 className="font-bold mb-3">Jogadores</h3>
             <div className="flex flex-col gap-2">
@@ -1027,6 +1185,7 @@ function App() {
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {isMestre && player.id !== currentUser.id && (
+                        <>
                         <button
                           onClick={() => handleTransferMestre(player)}
                           className="rounded border border-yellow-400/40 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-yellow-200 hover:bg-yellow-400/10 transition"
@@ -1034,6 +1193,14 @@ function App() {
                         >
                           Mestre
                         </button>
+                        <button
+                          onClick={() => handleRemovePlayer(player)}
+                          className="rounded border border-red-500/40 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-red-300 hover:bg-red-500/10 transition"
+                          title={`Remover ${player.nome || "Jogador"} da campanha`}
+                        >
+                          Remover
+                        </button>
+                        </>
                       )}
                       <span className={`h-2 w-2 rounded-full ${isRecent ? "bg-green-400" : "bg-gray-600"}`} title={isRecent ? "Online" : "Inativo"} />
                     </div>

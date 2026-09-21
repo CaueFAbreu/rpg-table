@@ -11,10 +11,17 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/salas/$(salaId)).data.mestreId == request.auth.uid;
     }
 
+    // Jogador removido pelo mestre fica registrado em salas/{salaId}/bloqueados/{uid}
+    // e perde o acesso de leitura e escrita a sala.
+    function isMember(salaId) {
+      return isSignedIn()
+        && !exists(/databases/$(database)/documents/salas/$(salaId)/bloqueados/$(request.auth.uid));
+    }
+
     match /salas/{salaId} {
       // A sala so pode ser lida pelo ID (get). Listar todas as salas e proibido:
       // o ID aleatorio funciona como convite/link secreto.
-      allow get: if isSignedIn();
+      allow get: if isMember(salaId);
       allow list: if false;
 
       allow create: if isSignedIn()
@@ -32,12 +39,12 @@ service cloud.firestore {
       allow delete: if false;
 
       match /personagens/{personagemId} {
-        allow read: if isSignedIn();
+        allow read: if isMember(salaId);
 
-        allow create: if isSignedIn()
+        allow create: if isMember(salaId)
           && request.resource.data.ownerId == request.auth.uid;
 
-        allow update: if isSignedIn()
+        allow update: if isMember(salaId)
           && (
             (
               resource.data.ownerId == request.auth.uid
@@ -49,14 +56,18 @@ service cloud.firestore {
             )
           );
 
-        allow delete: if isSignedIn()
-          && resource.data.ownerId == request.auth.uid;
+        // O dono exclui o proprio personagem; o mestre tambem pode (remocao de jogador).
+        allow delete: if isMember(salaId)
+          && (
+            resource.data.ownerId == request.auth.uid
+            || isMestre(salaId)
+          );
       }
 
       match /rolls/{rollId} {
-        allow read: if isSignedIn();
+        allow read: if isMember(salaId);
 
-        allow create: if isSignedIn()
+        allow create: if isMember(salaId)
           && request.resource.data.userId == request.auth.uid;
 
         allow update: if false;
@@ -65,7 +76,7 @@ service cloud.firestore {
       }
 
       match /extras/{extraId} {
-        allow read: if isSignedIn();
+        allow read: if isMember(salaId);
 
         allow create: if isMestre(salaId)
           && request.resource.data.createdBy == request.auth.uid;
@@ -74,14 +85,47 @@ service cloud.firestore {
       }
 
       match /jogadores/{userId} {
-        allow read: if isSignedIn();
+        allow read: if isMember(salaId);
 
-        allow create, update: if isSignedIn()
+        allow create, update: if isMember(salaId)
           && userId == request.auth.uid
           && request.resource.data.userId == request.auth.uid;
 
-        allow delete: if isSignedIn()
-          && userId == request.auth.uid;
+        // O jogador sai por conta propria; o mestre tambem pode remove-lo.
+        allow delete: if isMember(salaId)
+          && (userId == request.auth.uid || isMestre(salaId));
+      }
+
+      // Jogadores removidos pelo mestre. Cada um pode ler apenas o proprio registro
+      // (para saber que foi removido); so o mestre lista, cria e apaga (readmitir).
+      match /bloqueados/{userId} {
+        allow get: if isSignedIn()
+          && (userId == request.auth.uid || isMestre(salaId));
+
+        allow list: if isMestre(salaId);
+
+        allow create: if isMestre(salaId)
+          && userId != request.auth.uid
+          && request.resource.data.keys().hasOnly(["nome", "bloqueadoPor", "bloqueadoEm"])
+          && request.resource.data.bloqueadoPor == request.auth.uid;
+
+        allow update: if false;
+
+        allow delete: if isMestre(salaId);
+      }
+
+      // Area privada do mestre (nao e legivel pelos jogadores). Hoje guarda os Pontos de Medo.
+      match /mestre/{docId} {
+        allow read: if isMestre(salaId);
+
+        allow create, update: if isMestre(salaId)
+          && docId == "medo"
+          && request.resource.data.keys().hasOnly(["pontos", "updatedAt"])
+          && request.resource.data.pontos is int
+          && request.resource.data.pontos >= 0
+          && request.resource.data.pontos <= 999;
+
+        allow delete: if false;
       }
     }
   }
