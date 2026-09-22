@@ -113,21 +113,31 @@ function escolherMantidos(valores, manter) {
   return ordenados.slice(0, manter.quantidade);
 }
 
-function checarCriticoFalha(valores, mantidos) {
+function checarCriticoFalha(valores, mantidos, margemCritico) {
   let vinte = false;
   let um = false;
   for (const indice of mantidos) {
-    if (valores[indice] === 20) vinte = true;
+    if (valores[indice] >= margemCritico) vinte = true;
     if (valores[indice] === 1) um = true;
   }
   return { vinte, um };
 }
 
+function normalizarMargemCritico(margemCritico) {
+  return Number.isInteger(margemCritico) && margemCritico >= 1 && margemCritico <= 20
+    ? margemCritico
+    : 20;
+}
+
 // `rolarDado(faces)` pode ser injetado nos testes para resultados previsiveis.
+// `margemCritico`: a partir de qual valor no d20 conta como critico (20 = so natural 20;
+// 18 = 18, 19 ou 20). Em Ordem Paranormal, pericias e talentos podem reduzir esse numero
+// para personagens diferentes, entao cada roll fixo guarda o seu proprio valor.
 export function rolarExpressao(
   texto,
-  { regraD20 = REGRA_D20_SOMA, rolarDado = rolarDadoAleatorio } = {}
+  { regraD20 = REGRA_D20_SOMA, margemCritico = 20, rolarDado = rolarDadoAleatorio } = {}
 ) {
+  const limiteCritico = normalizarMargemCritico(margemCritico);
   const interpretada = interpretarExpressao(texto, { regraD20 });
   if (!interpretada.ok) return interpretada;
 
@@ -153,7 +163,7 @@ export function rolarExpressao(
 
     // Critico e falha critica valem so para d20 somados, olhando os dados que ficaram.
     if (termo.faces === 20 && termo.sinal > 0) {
-      const achado = checarCriticoFalha(valores, mantidos);
+      const achado = checarCriticoFalha(valores, mantidos, limiteCritico);
       if (achado.vinte) vinteMantido = true;
       if (achado.um) umMantido = true;
     }
@@ -175,5 +185,69 @@ export function rolarExpressao(
     total,
     detalhe: partes.join(" ").replace(/^\+/, "").trim(),
     criticoFalha
+  };
+}
+
+// Rolls fixos ("Ataque Corrente: 3d6+2d6"): rola o teste de ataque (se houver) e o dano,
+// e multiplica o dano quando o ataque critica. Sem expressao de ataque, rola so o dano puro
+// (ex.: um dano de queda ou de armadilha, sem teste).
+export function rolarAtaqueComDano({
+  ataque,
+  dano,
+  multiplicador = 2,
+  margemCritico = 20,
+  regraD20 = REGRA_D20_SOMA,
+  rolarDado = rolarDadoAleatorio
+} = {}) {
+  const ataqueTexto = String(ataque ?? "").trim();
+  const opcoes = { regraD20, margemCritico, rolarDado };
+
+  if (!ataqueTexto) {
+    const danoRolado = rolarExpressao(dano, opcoes);
+    if (!danoRolado.ok) return { ok: false, erro: `Dano: ${danoRolado.erro}` };
+
+    return {
+      ok: true,
+      ataque: null,
+      critico: false,
+      falha: false,
+      dano: {
+        expressao: dano,
+        total: danoRolado.total,
+        detalhe: danoRolado.detalhe,
+        multiplicado: false
+      }
+    };
+  }
+
+  const ataqueRolado = rolarExpressao(ataqueTexto, opcoes);
+  if (!ataqueRolado.ok) return { ok: false, erro: `Ataque: ${ataqueRolado.erro}` };
+
+  const danoRolado = rolarExpressao(dano, opcoes);
+  if (!danoRolado.ok) return { ok: false, erro: `Dano: ${danoRolado.erro}` };
+
+  const critico = ataqueRolado.criticoFalha === "critico";
+  const multiplicadorValido = Number.isInteger(multiplicador) && multiplicador >= 1 && multiplicador <= 10
+    ? multiplicador
+    : 2;
+  const totalDano = critico ? danoRolado.total * multiplicadorValido : danoRolado.total;
+
+  return {
+    ok: true,
+    ataque: {
+      expressao: ataqueTexto,
+      total: ataqueRolado.total,
+      detalhe: ataqueRolado.detalhe
+    },
+    critico,
+    falha: ataqueRolado.criticoFalha === "falha",
+    dano: {
+      expressao: dano,
+      total: totalDano,
+      base: danoRolado.total,
+      detalhe: danoRolado.detalhe,
+      multiplicado: critico,
+      multiplicador: multiplicadorValido
+    }
   };
 }

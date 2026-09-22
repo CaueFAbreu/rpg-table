@@ -1,6 +1,7 @@
 import { useState } from "react";
 import EditorImagem from "./EditorImagem";
 import Inventario from "./Inventario";
+import AtaquesFixos from "./AtaquesFixos";
 
 function AvatarPlaceholder() {
   return (
@@ -92,7 +93,9 @@ export default function CharacterCard({
   isActive,
   onSelect,
   onUpdateCharacter,
-  onDeleteCharacter
+  onDeleteCharacter,
+  regraD20,
+  onRolarAtaque
 }) {
   const [isEditingImage, setIsEditingImage] = useState(false);
   const [tempImage, setTempImage] = useState(null);
@@ -136,6 +139,14 @@ export default function CharacterCard({
 
   function handleUpdateInventario(novosItens) {
     onUpdateCharacter({ ...character, inventario: novosItens });
+  }
+
+  function handleSalvarAtaques(novaLista) {
+    onUpdateCharacter({ ...character, rollsFixos: novaLista });
+  }
+
+  function handleRolarAtaque(roll) {
+    return onRolarAtaque(character, roll);
   }
 
   return (
@@ -250,6 +261,15 @@ export default function CharacterCard({
             <Inventario
               itens={character.inventario || []}
               onUpdateInventario={handleUpdateInventario}
+            />
+          )}
+
+          {isOwner && (
+            <AtaquesFixos
+              rolls={character.rollsFixos || []}
+              regraD20={regraD20}
+              onSalvarRolls={handleSalvarAtaques}
+              onRolar={handleRolarAtaque}
             />
           )}
 

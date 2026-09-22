@@ -1,6 +1,7 @@
 import {
   interpretarExpressao,
   rolarExpressao,
+  rolarAtaqueComDano,
   REGRA_D20_MAIOR,
   REGRA_D20_SOMA
 } from "./dados";
@@ -128,5 +129,73 @@ describe("validacao", () => {
       expect(r.total).toBeGreaterThanOrEqual(1);
       expect(r.total).toBeLessThanOrEqual(6);
     }
+  });
+});
+
+describe("margem de critico configuravel", () => {
+  function rolarMargem(texto, valores, margemCritico) {
+    return rolarExpressao(texto, { margemCritico, rolarDado: sequencia(...valores) });
+  }
+
+  test("margem 18 conta 18, 19 e 20 como critico", () => {
+    expect(rolarMargem("1d20", [18], 18).criticoFalha).toBe("critico");
+    expect(rolarMargem("1d20", [19], 18).criticoFalha).toBe("critico");
+    expect(rolarMargem("1d20", [17], 18).criticoFalha).toBeNull();
+  });
+
+  test("1 continua sendo falha critica, mesmo com margem baixa", () => {
+    expect(rolarMargem("1d20", [1], 15).criticoFalha).toBe("falha");
+  });
+
+  test("margem invalida cai para 20 (so natural 20)", () => {
+    expect(rolarMargem("1d20", [19], 0).criticoFalha).toBeNull();
+    expect(rolarMargem("1d20", [19], 25).criticoFalha).toBeNull();
+    expect(rolarMargem("1d20", [20], undefined).criticoFalha).toBe("critico");
+  });
+});
+
+describe("rolarAtaqueComDano", () => {
+  function rolarCombo(opcoes, valores) {
+    return rolarAtaqueComDano({ ...opcoes, rolarDado: sequencia(...valores) });
+  }
+
+  test("ataque sem critico nao multiplica o dano", () => {
+    const r = rolarCombo({ ataque: "1d20+5", dano: "3d6", multiplicador: 2 }, [10, 3, 4, 5]);
+    expect(r.ok).toBe(true);
+    expect(r.critico).toBe(false);
+    expect(r.dano.total).toBe(12);
+    expect(r.dano.multiplicado).toBe(false);
+  });
+
+  test("ataque critico multiplica o dano pelo multiplicador salvo", () => {
+    const r = rolarCombo({ ataque: "1d20+5", dano: "3d6", multiplicador: 3 }, [20, 3, 4, 5]);
+    expect(r.critico).toBe(true);
+    expect(r.dano.base).toBe(12);
+    expect(r.dano.total).toBe(36);
+    expect(r.dano.multiplicado).toBe(true);
+  });
+
+  test("respeita a margem de critico do roll (ex.: 18+)", () => {
+    const r = rolarCombo({ ataque: "1d20", dano: "1d6", margemCritico: 18 }, [18, 4]);
+    expect(r.critico).toBe(true);
+  });
+
+  test("sem expressao de ataque, rola so o dano (sem multiplicar)", () => {
+    const r = rolarCombo({ dano: "2d6+2" }, [3, 4]);
+    expect(r.ataque).toBeNull();
+    expect(r.critico).toBe(false);
+    expect(r.dano.total).toBe(9);
+  });
+
+  test("expressao de dano invalida devolve erro", () => {
+    const r = rolarAtaqueComDano({ ataque: "1d20", dano: "3d6kh5" });
+    expect(r.ok).toBe(false);
+    expect(r.erro).toMatch(/Dano/);
+  });
+
+  test("expressao de ataque invalida devolve erro", () => {
+    const r = rolarAtaqueComDano({ ataque: "abc", dano: "1d6" });
+    expect(r.ok).toBe(false);
+    expect(r.erro).toMatch(/Ataque/);
   });
 });

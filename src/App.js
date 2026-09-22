@@ -24,6 +24,7 @@ import { generateRoomId, normalizeRoomId } from "./utils/salas";
 import { arquivoParaDataUrlComprimido, COVER_MAX_SIZE } from "./utils/imagem";
 import { normalizarPontosMedo } from "./utils/medo";
 import { SISTEMAS, SISTEMA_PADRAO, regraD20DaSala } from "./utils/sistemas";
+import { rolarAtaqueComDano } from "./utils/dados";
 import {
   estaOnline,
   PRESENCE_HEARTBEAT_MS,
@@ -419,6 +420,43 @@ function App() {
     } catch (error) {
       console.error("Erro ao registrar roll:", error);
       setFirebaseErro(formatFirebaseError("Nao foi possivel registrar a rolagem no Firebase.", error));
+    }
+  }
+
+  // Ataque fixo salvo na ficha ("Ataque Corrente: 3d6+2d6"): rola ataque + dano juntos e
+  // multiplica o dano se critar (ver src/utils/dados.js).
+  async function handleRolarAtaque(personagem, roll) {
+    if (!currentUser) return;
+
+    const resultado = rolarAtaqueComDano({
+      ataque: roll.ataque,
+      dano: roll.dano,
+      multiplicador: roll.multiplicador,
+      margemCritico: roll.margemCritico,
+      regraD20: regraD20DaSala(campanha)
+    });
+
+    if (!resultado.ok) {
+      window.alert(resultado.erro);
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "salas", salaId, "rolls"), {
+        tipo: "ataque",
+        rotulo: roll.nome,
+        ataque: resultado.ataque,
+        dano: resultado.dano,
+        criticoFalha: resultado.critico ? "critico" : resultado.falha ? "falha" : null,
+        personagem: personagem.nome,
+        personagemId: personagem.id,
+        jogador: currentUser.nome,
+        userId: currentUser.id,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      console.error("Erro ao registrar ataque:", error);
+      setFirebaseErro(formatFirebaseError("Nao foi possivel registrar o ataque no Firebase.", error));
     }
   }
 
@@ -1135,6 +1173,8 @@ function App() {
               }}
               onUpdateCharacter={updateCharacter}
               onDeleteCharacter={deleteCharacter}
+              regraD20={regraD20DaSala(campanha)}
+              onRolarAtaque={handleRolarAtaque}
             />
           ))}
 
@@ -1243,24 +1283,68 @@ function App() {
               {rolls.length === 0 && (
                 <p className="text-gray-400 text-sm text-center py-4">Nenhuma rolagem ainda...</p>
               )}
-              {rolls.map((roll) => (
-                <div key={roll.id} className="bg-black/30 border border-gray-700/50 rounded-lg p-3 text-sm flex flex-col">
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="font-bold text-[#b82870]">{roll.personagem}</span>
-                    <span className="text-gray-500 text-[10px]">{roll.expressao}</span>
+              {rolls.map((roll) =>
+                roll.tipo === "ataque" ? (
+                  <div key={roll.id} className="bg-black/30 border border-gray-700/50 rounded-lg p-3 text-sm flex flex-col gap-2">
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-[#b82870]">{roll.personagem}</span>
+                      <span className="text-gray-500 text-[10px]">{roll.rotulo}</span>
+                    </div>
+
+                    {roll.ataque && (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-gray-500 text-[10px] uppercase tracking-widest mr-1">Ataque</span>
+                          <span className="text-gray-400 text-xs font-mono break-words">{roll.ataque.detalhe}</span>
+                        </div>
+                        <span className={`shrink-0 font-bold text-lg ${
+                          roll.criticoFalha === "critico" ? "text-green-400" :
+                          roll.criticoFalha === "falha" ? "text-red-500" : "text-white"
+                        }`}>
+                          {roll.ataque.total}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2 border-t border-gray-700/50 pt-2">
+                      <div className="min-w-0">
+                        <span className="text-gray-500 text-[10px] uppercase tracking-widest mr-1">Dano</span>
+                        <span className="text-gray-400 text-xs font-mono break-words">
+                          {roll.dano.detalhe}
+                          {roll.dano.multiplicado && ` ×${roll.dano.multiplicador}`}
+                        </span>
+                      </div>
+                      <span className={`shrink-0 font-bold text-xl ${roll.dano.multiplicado ? "text-green-400" : "text-white"}`}>
+                        {roll.dano.total}
+                      </span>
+                    </div>
+
+                    {roll.criticoFalha === "critico" && (
+                      <div className="text-green-400 text-[10px] font-bold uppercase tracking-widest text-center">Crítico!</div>
+                    )}
+                    {roll.criticoFalha === "falha" && (
+                      <div className="text-red-500 text-[10px] font-bold uppercase tracking-widest text-center">Falha crítica!</div>
+                    )}
                   </div>
-                  <span className="text-gray-400 text-xs font-mono mb-2 break-words">{roll.detalhe}</span>
-                  <div className="flex justify-between items-center border-t border-gray-700/50 pt-2 mt-auto">
-                    <span className="text-gray-500 text-xs">Total:</span>
-                    <span className={`font-bold text-xl ${
-                      roll.criticoFalha === "critico" ? "text-green-400" :
-                      roll.criticoFalha === "falha" ? "text-red-500" : "text-white"
-                    }`}>
-                      {roll.resultado}
-                    </span>
+                ) : (
+                  <div key={roll.id} className="bg-black/30 border border-gray-700/50 rounded-lg p-3 text-sm flex flex-col">
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="font-bold text-[#b82870]">{roll.personagem}</span>
+                      <span className="text-gray-500 text-[10px]">{roll.expressao}</span>
+                    </div>
+                    <span className="text-gray-400 text-xs font-mono mb-2 break-words">{roll.detalhe}</span>
+                    <div className="flex justify-between items-center border-t border-gray-700/50 pt-2 mt-auto">
+                      <span className="text-gray-500 text-xs">Total:</span>
+                      <span className={`font-bold text-xl ${
+                        roll.criticoFalha === "critico" ? "text-green-400" :
+                        roll.criticoFalha === "falha" ? "text-red-500" : "text-white"
+                      }`}>
+                        {roll.resultado}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           </div>
 
