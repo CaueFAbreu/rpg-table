@@ -23,6 +23,7 @@ import PainelMestre from "./components/PainelMestre";
 import { generateRoomId, normalizeRoomId } from "./utils/salas";
 import { arquivoParaDataUrlComprimido, COVER_MAX_SIZE } from "./utils/imagem";
 import { normalizarPontosMedo } from "./utils/medo";
+import { SISTEMAS, SISTEMA_PADRAO, regraD20DaSala } from "./utils/sistemas";
 import {
   estaOnline,
   PRESENCE_HEARTBEAT_MS,
@@ -63,6 +64,7 @@ function App() {
   const [salaId, setSalaId] = useState(getInitialRoomId);
   const [salaInput, setSalaInput] = useState(() => getInitialRoomId() || "");
   const [newRoomName, setNewRoomName] = useState("");
+  const [novoSistema, setNovoSistema] = useState(SISTEMA_PADRAO);
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [roomLinkCopied, setRoomLinkCopied] = useState(false);
   const [campanha, setCampanha] = useState({
@@ -767,6 +769,7 @@ function App() {
 
     const nextSalaId = generateRoomId();
     const nome = newRoomName.trim() || DEFAULT_CAMPAIGN_NAME;
+    const { regraD20 } = SISTEMAS[novoSistema] || SISTEMAS[SISTEMA_PADRAO];
     setCreatingRoom(true);
     setFirebaseErro(null);
 
@@ -776,6 +779,7 @@ function App() {
         nome,
         mestreId: currentUser.id,
         mestreNome: currentUser.nome,
+        regraD20,
         createdAt: Date.now(),
         updatedAt: Date.now()
       });
@@ -907,6 +911,15 @@ function App() {
               maxLength={60}
               className="w-full rounded border border-gray-700 bg-black/50 px-3 py-2 text-sm text-white outline-none focus:border-[#b82870]"
             />
+            <select
+              value={novoSistema}
+              onChange={(e) => setNovoSistema(e.target.value)}
+              className="w-full rounded border border-gray-700 bg-black/50 px-3 py-2 text-sm text-white outline-none focus:border-[#b82870]"
+            >
+              {Object.entries(SISTEMAS).map(([chave, sistema]) => (
+                <option key={chave} value={chave}>{sistema.nome}</option>
+              ))}
+            </select>
             <button
               type="submit"
               disabled={creatingRoom}
@@ -1137,7 +1150,7 @@ function App() {
         {/* LATERAL */}
         <div className="w-full lg:w-80 lg:shrink-0 flex flex-col gap-6">
 
-          <DiceRoller onRoll={handleNewRoll} activeCharacter={activeCharacter} />
+          <DiceRoller onRoll={handleNewRoll} regraD20={regraD20DaSala(campanha)} />
 
           <IniciativaTracker
             characters={characters}
