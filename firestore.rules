@@ -52,7 +52,7 @@ service cloud.firestore {
             )
             || (
               isMestre(salaId)
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["iniciativa"])
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["iniciativa", "condicoes"])
             )
           );
 

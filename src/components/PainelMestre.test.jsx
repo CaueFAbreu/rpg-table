@@ -11,6 +11,7 @@ function montar(props = {}) {
       onSetPontosMedo={onSetPontosMedo}
       removidos={[]}
       onReadmitir={onReadmitir}
+      personagens={[]}
       {...props}
     />
   );
@@ -59,4 +60,28 @@ test("lista os removidos e permite readmitir", () => {
   expect(screen.getByText("Entrou Errado")).toBeInTheDocument();
   fireEvent.click(screen.getByText("Readmitir"));
   expect(onReadmitir).toHaveBeenCalledWith("abc");
+});
+
+test("mostra a tabela de personagens com marcadores e condicoes", () => {
+  montar({
+    personagens: [
+      {
+        id: "c1",
+        nome: "Alphonse",
+        jogador: "Caue",
+        marcadores: [{ id: "m1", nome: "Vida", atual: 15, max: 20, cor: "vermelho" }],
+        condicoes: ["Sangrando"]
+      }
+    ]
+  });
+
+  expect(screen.getByText("Alphonse")).toBeInTheDocument();
+  expect(screen.getByText("Caue")).toBeInTheDocument();
+  expect(screen.getByText("15/20")).toBeInTheDocument();
+  expect(screen.getByText("Sangrando")).toBeInTheDocument();
+});
+
+test("mostra aviso quando nao ha personagens", () => {
+  montar({ personagens: [] });
+  expect(screen.getByText("Nenhum personagem na sala ainda.")).toBeInTheDocument();
 });

@@ -1167,6 +1167,7 @@ function App() {
               character={char}
               currentUser={currentUser}
               isActive={char.id === activeCharacterId}
+              isMestre={isMestre}
               onSelect={() => {
                 if (char.ownerId === currentUser.id) setActiveCharacterId(char.id);
               }}
@@ -1213,6 +1214,10 @@ function App() {
               onSetPontosMedo={handleSetPontosMedo}
               removidos={removidos}
               onReadmitir={handleReadmitirJogador}
+              personagens={characters.map((char) => ({
+                ...char,
+                jogador: players.find((p) => p.userId === char.ownerId)?.nome
+              }))}
             />
           )}
 

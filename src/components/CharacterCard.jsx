@@ -2,6 +2,7 @@ import { useState } from "react";
 import EditorImagem from "./EditorImagem";
 import Inventario from "./Inventario";
 import AtaquesFixos from "./AtaquesFixos";
+import CondicoesRapidas from "./CondicoesRapidas";
 import { CORES_MARCADOR, corClasse, marcadoresDoPersonagem, validarMarcador } from "../utils/marcadores";
 
 function AvatarPlaceholder() {
@@ -57,6 +58,68 @@ function EditableField({ value, onSave, isOwner, type = "text", className = "" }
     >
       {value}
     </span>
+  );
+}
+
+function normalizarLinkFicha(valor) {
+  const limpo = String(valor ?? "").trim();
+  if (!limpo) return "";
+  if (/^https?:\/\//i.test(limpo)) return limpo;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(limpo)) return ""; // outro esquema (ex: javascript:) nao e aceito
+  return `https://${limpo}`;
+}
+
+function LinkFicha({ value, onSave }) {
+  const [editando, setEditando] = useState(false);
+  const [rascunho, setRascunho] = useState(value || "");
+
+  function salvar() {
+    setEditando(false);
+    onSave(normalizarLinkFicha(rascunho));
+  }
+
+  if (editando) {
+    return (
+      <input
+        value={rascunho}
+        onChange={(e) => setRascunho(e.target.value)}
+        onBlur={salvar}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") salvar();
+          if (e.key === "Escape") { setRascunho(value || ""); setEditando(false); }
+        }}
+        onClick={(e) => e.stopPropagation()}
+        placeholder="https://..."
+        autoFocus
+        className="w-44 rounded border border-[#b82870] bg-black/50 px-2 py-0.5 text-xs text-white outline-none"
+      />
+    );
+  }
+
+  return (
+    <div className="mt-1 flex items-center justify-center gap-1.5 text-xs">
+      {value ? (
+        <a
+          href={value}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="max-w-[160px] truncate text-gray-400 underline hover:text-[#f0a3ca]"
+        >
+          🔗 Ficha completa
+        </a>
+      ) : (
+        <span className="text-gray-600">Sem link da ficha completa</span>
+      )}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setRascunho(value || ""); setEditando(true); }}
+        title="Editar link da ficha completa"
+        className="text-gray-600 hover:text-gray-300"
+      >
+        ✎
+      </button>
+    </div>
   );
 }
 
@@ -139,6 +202,7 @@ export default function CharacterCard({
   character,
   currentUser,
   isActive,
+  isMestre,
   onSelect,
   onUpdateCharacter,
   onDeleteCharacter,
@@ -226,6 +290,10 @@ export default function CharacterCard({
     onUpdateCharacter({ ...character, rollsFixos: novaLista });
   }
 
+  function handleSalvarCondicoes(novaLista) {
+    onUpdateCharacter({ ...character, condicoes: novaLista });
+  }
+
   function handleRolarAtaque(roll) {
     return onRolarAtaque(character, roll);
   }
@@ -279,8 +347,29 @@ export default function CharacterCard({
             <p className="text-[#b82870]">
               <EditableField value={character.classe} onSave={(val) => handleDirectEdit("classe", val)} isOwner={isOwner} />
             </p>
+            {isOwner ? (
+              <LinkFicha value={character.linkFicha} onSave={(val) => handleDirectEdit("linkFicha", val)} />
+            ) : (
+              character.linkFicha && (
+                <a
+                  href={character.linkFicha}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1 inline-block text-xs text-gray-400 underline hover:text-[#f0a3ca]"
+                >
+                  🔗 Ficha completa
+                </a>
+              )
+            )}
           </div>
         </div>
+
+        <CondicoesRapidas
+          condicoes={character.condicoes || []}
+          podeEditar={isOwner || isMestre}
+          onChange={handleSalvarCondicoes}
+        />
 
         <div className="w-full mt-6 bg-black/40 p-4 rounded-lg border border-gray-700/50 font-sans cursor-default">
 

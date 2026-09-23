@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { normalizarPontosMedo, PONTOS_MEDO_MAX } from "../utils/medo";
+import { corClasse, marcadoresDoPersonagem } from "../utils/marcadores";
 
 function BotaoMedo({ children, onClick, disabled, label }) {
   return (
@@ -15,7 +16,53 @@ function BotaoMedo({ children, onClick, disabled, label }) {
   );
 }
 
-export default function PainelMestre({ pontosMedo, onSetPontosMedo, removidos = [], onReadmitir }) {
+// Uma linha por personagem: nome, dono, o valor atual de cada marcador (Vida, Sanidade...) e
+// as condicoes ativas. Para o mestre ver a mesa inteira sem abrir ficha por ficha.
+function TabelaPersonagens({ personagens }) {
+  if (personagens.length === 0) {
+    return <p className="py-2 text-center text-xs text-gray-500">Nenhum personagem na sala ainda.</p>;
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {personagens.map((char) => (
+        <div key={char.id} className="rounded-lg border border-gray-700/50 bg-black/30 px-3 py-2">
+          <div className="mb-1.5 flex items-baseline justify-between gap-2">
+            <span className="truncate text-sm font-bold text-white">{char.nome}</span>
+            {char.jogador && <span className="shrink-0 text-[10px] text-gray-500">{char.jogador}</span>}
+          </div>
+
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {marcadoresDoPersonagem(char).map((m) => (
+              <span key={m.id} className="flex items-center gap-1 text-xs">
+                <span className={`h-2 w-2 rounded-full ${corClasse(m.cor)}`} />
+                <span className="text-gray-400">{m.nome}</span>
+                <span className="font-bold text-white">{m.atual}/{m.max}</span>
+              </span>
+            ))}
+          </div>
+
+          {(char.condicoes || []).length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {char.condicoes.map((c) => (
+                <span
+                  key={c}
+                  className="rounded-full border border-amber-500/40 bg-amber-950/40 px-2 py-0.5 text-[10px] font-bold text-amber-200"
+                >
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function PainelMestre({
+  pontosMedo, onSetPontosMedo, removidos = [], onReadmitir, personagens = []
+}) {
   const [editando, setEditando] = useState(false);
   const [rascunho, setRascunho] = useState("");
 
@@ -99,6 +146,13 @@ export default function PainelMestre({ pontosMedo, onSetPontosMedo, removidos = 
         >
           Zerar
         </button>
+      </div>
+
+      <div className="mt-3">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">
+          Personagens
+        </p>
+        <TabelaPersonagens personagens={personagens} />
       </div>
 
       {removidos.length > 0 && (
