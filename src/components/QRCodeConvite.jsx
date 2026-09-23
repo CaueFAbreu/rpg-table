@@ -53,7 +53,7 @@ export default function QRCodeConvite({ link }) {
             </div>
           )}
           <p className="text-center text-[11px] text-gray-500">
-            Quem escanear entra como visitante: vê a mesa e rola dados, mas não cria personagem.
+            Escaneie para entrar como visitante!.
           </p>
         </div>
       )}
