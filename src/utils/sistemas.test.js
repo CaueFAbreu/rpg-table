@@ -1,4 +1,4 @@
-import { descreverRegraD20, regraD20DaSala, SISTEMAS, SISTEMA_PADRAO } from "./sistemas";
+import { descreverRegraD20, regraD20DaSala, sistemaDaSala, SISTEMAS, SISTEMA_PADRAO } from "./sistemas";
 
 test("salas antigas, sem o campo, mantem a regra do maior d20", () => {
   expect(regraD20DaSala({})).toBe("maior");
@@ -20,4 +20,14 @@ test("o sistema padrao existe e todos os presets tem regra valida", () => {
 test("descreve as regras em texto", () => {
   expect(descreverRegraD20("maior")).toMatch(/maior/);
   expect(descreverRegraD20("qualquer")).toMatch(/soma/);
+});
+
+test("sistemaDaSala usa o campo salvo quando existe", () => {
+  expect(sistemaDaSala({ sistema: "dnd-5e" })).toBe("dnd-5e");
+  expect(sistemaDaSala({ sistema: "chave-invalida", regraD20: "soma" })).toBe(SISTEMA_PADRAO);
+});
+
+test("sistemaDaSala infere pelo regraD20 em salas antigas, sem o campo", () => {
+  expect(sistemaDaSala({})).toBe("ordem-paranormal");
+  expect(sistemaDaSala({ regraD20: "soma" })).toBe(SISTEMA_PADRAO);
 });

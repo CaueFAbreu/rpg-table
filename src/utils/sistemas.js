@@ -24,3 +24,11 @@ export function descreverRegraD20(regra) {
 export function regraD20DaSala(sala) {
   return sala?.regraD20 === "soma" ? "soma" : "maior";
 }
+
+// Chave do sistema (ver SISTEMAS acima) para escolher os marcadores padrao de um personagem
+// novo. Salas criadas antes deste campo existir nao tem `sala.sistema`: como todas jogavam
+// com a regra do maior d20, tratamos como Ordem Paranormal; as demais caem no generico.
+export function sistemaDaSala(sala) {
+  if (sala?.sistema && SISTEMAS[sala.sistema]) return sala.sistema;
+  return regraD20DaSala(sala) === "maior" ? "ordem-paranormal" : SISTEMA_PADRAO;
+}

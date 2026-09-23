@@ -23,7 +23,7 @@ import PainelMestre from "./components/PainelMestre";
 import { generateRoomId, normalizeRoomId } from "./utils/salas";
 import { arquivoParaDataUrlComprimido, COVER_MAX_SIZE } from "./utils/imagem";
 import { normalizarPontosMedo } from "./utils/medo";
-import { SISTEMAS, SISTEMA_PADRAO, regraD20DaSala } from "./utils/sistemas";
+import { SISTEMAS, SISTEMA_PADRAO, regraD20DaSala, sistemaDaSala } from "./utils/sistemas";
 import { rolarAtaqueComDano } from "./utils/dados";
 import {
   estaOnline,
@@ -483,10 +483,7 @@ function App() {
       await addDoc(collection(db, "salas", salaId, "personagens"), {
         ...novosDados,
         ownerId: currentUser.id,
-        imagem: novosDados.imagem || null,
-        vidaMax: novosDados.vida,
-        sanidadeMax: novosDados.sanidade,
-        esforcoMax: novosDados.esforco
+        imagem: novosDados.imagem || null
       });
       setIsModalOpen(false);
     } catch (error) {
@@ -807,7 +804,8 @@ function App() {
 
     const nextSalaId = generateRoomId();
     const nome = newRoomName.trim() || DEFAULT_CAMPAIGN_NAME;
-    const { regraD20 } = SISTEMAS[novoSistema] || SISTEMAS[SISTEMA_PADRAO];
+    const sistemaEscolhido = SISTEMAS[novoSistema] ? novoSistema : SISTEMA_PADRAO;
+    const { regraD20 } = SISTEMAS[sistemaEscolhido];
     setCreatingRoom(true);
     setFirebaseErro(null);
 
@@ -817,6 +815,7 @@ function App() {
         nome,
         mestreId: currentUser.id,
         mestreNome: currentUser.nome,
+        sistema: sistemaEscolhido,
         regraD20,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -1355,6 +1354,7 @@ function App() {
         <NovoPersonagem
           onClose={() => setIsModalOpen(false)}
           onSave={handleCriarPersonagem}
+          sistema={sistemaDaSala(campanha)}
         />
       )}
 
