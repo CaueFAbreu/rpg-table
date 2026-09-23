@@ -20,6 +20,7 @@ import DiceRoller from "./components/DiceRoller";
 import NovoPersonagem from "./components/NovoPersonagem";
 import IniciativaTracker from "./components/IniciativaTracker";
 import PainelMestre from "./components/PainelMestre";
+import QRCodeConvite from "./components/QRCodeConvite";
 import { generateRoomId, normalizeRoomId } from "./utils/salas";
 import { arquivoParaDataUrlComprimido, COVER_MAX_SIZE } from "./utils/imagem";
 import { normalizarPontosMedo } from "./utils/medo";
@@ -58,6 +59,13 @@ function getInitialRoomId() {
   return getRoomIdFromUrl() || getStoredRoomId();
 }
 
+// "Visitante": entra pra assistir e rolar dados, sem registrar presenca (ver o motivo em
+// src/utils/presenca.js) e sem criar personagem. Pensado pra plateia entrando via QR code.
+function getInitialVisitante() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("visitante") === "1";
+}
+
 function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -84,6 +92,9 @@ function App() {
   const [pontosMedo, setPontosMedo] = useState(0);
   const [removidos, setRemovidos] = useState([]);
   const [bloqueado, setBloqueado] = useState(false);
+  const [abaMobile, setAbaMobile] = useState("fichas"); // "fichas" | "mesa" (so importa no celular)
+  const [isVisitante, setIsVisitante] = useState(getInitialVisitante);
+  const [entrarComoVisitante, setEntrarComoVisitante] = useState(false); // checkbox do lobby
   const wasBlockedRef = useRef(false);
   const [firebaseErro, setFirebaseErro] = useState(null);
 
@@ -103,6 +114,16 @@ function App() {
     url.searchParams.set("sala", salaId);
     return url.toString();
   }, [salaId]);
+  // Link pra plateia: mesma sala, marcado como visitante (sem presenca, sem criar personagem).
+  // E o link que vira QR code na tela do mestre.
+  const salaVisitanteUrl = useMemo(() => {
+    if (!salaId) return "";
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("sala", salaId);
+    url.searchParams.set("visitante", "1");
+    return url.toString();
+  }, [salaId]);
 
   useEffect(() => {
     localStorage.setItem(USER_NAME_STORAGE_KEY, playerName);
@@ -113,8 +134,9 @@ function App() {
 
     if (!salaId) {
       localStorage.removeItem(ROOM_STORAGE_KEY);
-      if (url.searchParams.has("sala")) {
+      if (url.searchParams.has("sala") || url.searchParams.has("visitante")) {
         url.searchParams.delete("sala");
+        url.searchParams.delete("visitante");
         window.history.replaceState(null, "", url.toString());
       }
       return;
@@ -122,11 +144,21 @@ function App() {
 
     localStorage.setItem(ROOM_STORAGE_KEY, salaId);
 
-    if (url.searchParams.get("sala") !== salaId) {
+    let precisaAtualizar = url.searchParams.get("sala") !== salaId;
+
+    if (isVisitante && url.searchParams.get("visitante") !== "1") {
+      url.searchParams.set("visitante", "1");
+      precisaAtualizar = true;
+    } else if (!isVisitante && url.searchParams.has("visitante")) {
+      url.searchParams.delete("visitante");
+      precisaAtualizar = true;
+    }
+
+    if (precisaAtualizar) {
       url.searchParams.set("sala", salaId);
       window.history.replaceState(null, "", url.toString());
     }
-  }, [salaId]);
+  }, [salaId, isVisitante]);
 
   useEffect(() => {
     if (!salaId) return;
@@ -231,7 +263,7 @@ function App() {
 
   // Presenca "preguicosa": ver src/utils/presenca.js para o motivo.
   useEffect(() => {
-    if (!isFirebaseConfigured || !presenceUserId || !salaId || bloqueado) return undefined;
+    if (!isFirebaseConfigured || !presenceUserId || !salaId || bloqueado || isVisitante) return undefined;
 
     const playerRef = doc(db, "salas", salaId, "jogadores", presenceUserId);
     let lastWrite = 0;
@@ -273,7 +305,7 @@ function App() {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [presenceUserId, presenceName, isMestre, salaId, bloqueado]);
+  }, [presenceUserId, presenceName, isMestre, salaId, bloqueado, isVisitante]);
 
  
   useEffect(() => {
@@ -407,12 +439,12 @@ function App() {
   }
 
   async function handleNewRoll(rollData) {
-    if (!activeCharacter || !currentUser) return;
+    if (!currentUser) return;
     try {
       await addDoc(collection(db, "salas", salaId, "rolls"), {
         ...rollData,
-        personagem: activeCharacter.nome,
-        personagemId: activeCharacter.id,
+        personagem: activeCharacter ? activeCharacter.nome : currentUser.nome,
+        personagemId: activeCharacter ? activeCharacter.id : null,
         jogador: currentUser.nome,
         userId: currentUser.id,
         timestamp: Date.now()
@@ -810,6 +842,7 @@ function App() {
     setFirebaseErro(null);
 
     try {
+      setIsVisitante(false); // quem cria a sala e o mestre, nunca visitante
       // Quem cria a sala ja nasce como mestre (permitido por firestore.rules).
       await setDoc(doc(db, "salas", nextSalaId), {
         nome,
@@ -838,12 +871,15 @@ function App() {
 
     setFirebaseErro(null);
     setSalaInput(nextSalaId);
+    setIsVisitante(entrarComoVisitante);
     setSalaId(nextSalaId);
   }
 
   function handleLeaveRoom() {
     setSalaInput("");
     setSalaId(null);
+    setIsVisitante(false);
+    setEntrarComoVisitante(false);
   }
 
   async function handleCopyRoomLink() {
@@ -988,6 +1024,15 @@ function App() {
                 Entrar
               </button>
             </div>
+            <label className="mt-1 flex items-center gap-2 text-xs text-gray-400">
+              <input
+                type="checkbox"
+                checked={entrarComoVisitante}
+                onChange={(e) => setEntrarComoVisitante(e.target.checked)}
+                className="accent-[#b82870]"
+              />
+              Entrar como visitante (só ver e rolar dados, sem registrar presença nem criar personagem)
+            </label>
           </form>
         </div>
       </div>
@@ -1076,6 +1121,14 @@ function App() {
           >
             Sair
           </button>
+          {isVisitante && (
+            <span
+              className="rounded border border-amber-500/50 bg-amber-950/40 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-200"
+              title="Voce entrou como visitante: pode ver a mesa e rolar dados, mas nao registra presenca nem cria personagem"
+            >
+              Visitante
+            </span>
+          )}
         </form>
         <div className="flex items-center gap-2 rounded-lg border border-[#b82870]/30 bg-black/20 px-3 py-2">
           <span
@@ -1157,10 +1210,32 @@ function App() {
         )}
       </div>
 
+      {/* No celular, alterna entre a grade de fichas e a coluna da mesa (dados, iniciativa,
+          jogadores). Em telas grandes as duas colunas ficam sempre visiveis, lado a lado. */}
+      <div className="mb-4 flex gap-2 lg:hidden">
+        {[
+          { chave: "fichas", rotulo: "Fichas" },
+          { chave: "mesa", rotulo: "Mesa" }
+        ].map((aba) => (
+          <button
+            key={aba.chave}
+            type="button"
+            onClick={() => setAbaMobile(aba.chave)}
+            className={`flex-1 rounded-lg py-2 text-sm font-bold tracking-widest transition ${
+              abaMobile === aba.chave
+                ? "bg-[#b82870] text-white"
+                : "bg-black/30 text-gray-400 border border-gray-700/50"
+            }`}
+          >
+            {aba.rotulo}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
 
         {/* GRID DE PERSONAGENS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6 flex-1 min-w-0 items-start">
+        <div className={`${abaMobile === "fichas" ? "grid" : "hidden"} lg:grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6 flex-1 min-w-0 items-start`}>
           {characters.map((char) => (
             <CharacterCard
               key={char.id}
@@ -1178,17 +1253,19 @@ function App() {
             />
           ))}
 
-          <div
-            onClick={() => setIsModalOpen(true)}
-            className="bg-black/20 border-2 border-dashed border-gray-600 hover:border-[#b82870] rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition min-h-[290px] text-gray-500 hover:text-[#b82870]"
-          >
-            <span className="text-8xl font-light mb-4">+</span>
-            <span className="text-lg font-bold">Criar Personagem</span>
-          </div>
+          {!isVisitante && (
+            <div
+              onClick={() => setIsModalOpen(true)}
+              className="bg-black/20 border-2 border-dashed border-gray-600 hover:border-[#b82870] rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition min-h-[290px] text-gray-500 hover:text-[#b82870]"
+            >
+              <span className="text-8xl font-light mb-4">+</span>
+              <span className="text-lg font-bold">Criar Personagem</span>
+            </div>
+          )}
         </div>
 
         {/* LATERAL */}
-        <div className="w-full lg:w-80 lg:shrink-0 flex flex-col gap-6">
+        <div className={`${abaMobile === "mesa" ? "flex" : "hidden"} lg:flex w-full lg:w-80 lg:shrink-0 flex-col gap-6`}>
 
           <DiceRoller onRoll={handleNewRoll} regraD20={regraD20DaSala(campanha)} />
 
@@ -1207,6 +1284,8 @@ function App() {
             onEndCombat={handleEndCombat}
             onResetInitiatives={handleResetInitiatives}
           />
+
+          {isMestre && <QRCodeConvite link={salaVisitanteUrl} />}
 
           {isMestre && (
             <PainelMestre
