@@ -24,6 +24,7 @@ A aplicação é construída com React e utiliza Firebase Authentication (login 
 - [Como compartilhar uma sala](#como-compartilhar-uma-sala)
 - [Limitações conhecidas e próximos passos](#limitações-conhecidas-e-próximos-passos)
 - [Autor](#autor)
+- [Licença](#licença)
 
 ## Funcionalidades
 
@@ -200,7 +201,7 @@ Quem abrir o link entra diretamente na sala. Para o público, o mestre dispõe d
 - Substituir os ícones padrão do Create React App por uma identidade visual própria.
 - As imagens são armazenadas comprimidas no próprio Firestore; para imagens maiores ou em maior quantidade, o ideal é migrar para o Firebase Storage.
 - O modo visitante é uma restrição apenas da interface: as regras do Firestore não distinguem visitantes. Para torná-lo uma restrição efetiva, é necessário refleti-lo em `firestore.rules`.
-- Ampliar a cobertura de testes para `App.js` e para os hooks; hoje os testes automatizados cobrem os utilitários, o painel do mestre e as regras do Firestore.
+- Ampliar a cobertura de testes para `App.js` e para os hooks; hoje os testes automatizados cobrem os utilitários, o painel do mestre, a tela de erro e as regras do Firestore.
 - Extrair para hooks a edição da campanha (nome, capa, combate e papel de mestre), os NPCs e a lista de jogadores, que ainda estão em `App.js`.
 
 ## Autor
@@ -208,3 +209,7 @@ Quem abrir o link entra diretamente na sala. Para o público, o mestre dispõe d
 **Cauê F. Abreu**
 
 [![GitHub](https://img.shields.io/badge/GitHub-CaueFAbreu-181717?logo=github)](https://github.com/CaueFAbreu)
+
+## Licença
+
+Distribuído sob a licença MIT. Consulte o arquivo [LICENSE](LICENSE).
