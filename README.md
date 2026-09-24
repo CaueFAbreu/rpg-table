@@ -1,10 +1,29 @@
-# RPG Table
+# 🎲 RPG Table
+
+[![CI](https://github.com/CaueFAbreu/rpg-table/actions/workflows/ci.yml/badge.svg)](https://github.com/CaueFAbreu/rpg-table/actions/workflows/ci.yml)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-38BDF8?logo=tailwindcss&logoColor=white)
+![Firebase](https://img.shields.io/badge/Firebase-Auth_%7C_Firestore_%7C_Hosting-FFCA28?logo=firebase&logoColor=black)
 
 Mesa virtual para RPG de mesa, com sincronização em tempo real entre todos os participantes. Criado inicialmente para campanhas de Ordem Paranormal, o projeto também oferece predefinições para D&D 5e, Tormenta 20 e um modo genérico.
 
 🔗 **Acesse:** https://rpg-table-4922a.web.app
 
 A aplicação é construída com React e utiliza Firebase Authentication (login anônimo) e Cloud Firestore para manter personagens, jogadores, rolagens, NPCs e iniciativa sincronizados.
+
+## Índice
+
+- [Funcionalidades](#funcionalidades)
+- [Tecnologias](#tecnologias)
+- [Pré-requisitos](#pré-requisitos)
+- [Configuração local](#configuração-local)
+- [Testes](#testes)
+- [Estrutura do projeto](#estrutura-do-projeto)
+- [Regras do Firestore](#regras-do-firestore)
+- [Build e deploy](#build-e-deploy)
+- [Como compartilhar uma sala](#como-compartilhar-uma-sala)
+- [Limitações conhecidas e próximos passos](#limitações-conhecidas-e-próximos-passos)
+- [Autor](#autor)
 
 ## Funcionalidades
 
@@ -56,13 +75,20 @@ A aplicação é construída com React e utiliza Firebase Authentication (login 
 
 ## Configuração local
 
-1. Instale as dependências:
+1. Clone o repositório:
+
+   ```bash
+   git clone https://github.com/CaueFAbreu/rpg-table.git
+   cd rpg-table
+   ```
+
+2. Instale as dependências:
 
    ```bash
    npm install
    ```
 
-2. Crie o arquivo de ambiente a partir do exemplo:
+3. Crie o arquivo de ambiente a partir do exemplo:
 
    ```bash
    cp .env.example .env.local
@@ -70,7 +96,7 @@ A aplicação é construída com React e utiliza Firebase Authentication (login 
 
    No Prompt de Comando do Windows, use `copy .env.example .env.local`.
 
-3. Preencha o `.env.local` com a configuração do aplicativo Web do Firebase:
+4. Preencha o `.env.local` com a configuração do aplicativo Web do Firebase:
 
    ```env
    REACT_APP_FIREBASE_API_KEY=
@@ -81,13 +107,13 @@ A aplicação é construída com React e utiliza Firebase Authentication (login 
    REACT_APP_FIREBASE_APP_ID=
    ```
 
-4. No Console do Firebase, habilite:
+5. No Console do Firebase, habilite:
 
    - Authentication > Método de login > Anônimo
    - Firestore Database
    - Firebase Hosting, caso a publicação seja feita pelo Firebase
 
-5. Inicie a aplicação:
+6. Inicie a aplicação:
 
    ```bash
    npm start
@@ -164,7 +190,7 @@ firebase login
 Crie uma sala pelo lobby ou entre com um código existente. Dentro da sala, clique em **Link** para copiar a URL de convite:
 
 ```text
-https://seu-projeto.web.app/?sala=codigodasala
+https://rpg-table-4922a.web.app/?sala=codigodasala
 ```
 
 Quem abrir o link entra diretamente na sala. Para o público, o mestre dispõe de um QR code que leva ao modo visitante.
@@ -181,4 +207,4 @@ Quem abrir o link entra diretamente na sala. Para o público, o mestre dispõe d
 
 **Cauê F. Abreu**
 
-[GitHub](https://github.com/CaueFAbreu)
+[![GitHub](https://img.shields.io/badge/GitHub-CaueFAbreu-181717?logo=github)](https://github.com/CaueFAbreu)
