@@ -14,6 +14,8 @@ import { regraD20DaSala } from "../utils/sistemas";
 import { rolarAtaqueComDano } from "../utils/dados";
 import { formatFirebaseError } from "../utils/erros";
 
+const CLEAR_ROLLS_BATCH_SIZE = 400;
+
 // Historico de rolagens da sala (salas/{salaId}/rolls): listener das 50 mais recentes,
 // rolagem simples (DiceRoller), ataque fixo da ficha e limpar historico (mestre).
 // setErro e o setState do aviso de erro do App (identidade estavel).
@@ -120,13 +122,17 @@ export default function useRolls({
 
     try {
       const snapshot = await getDocs(collection(db, "salas", salaId, "rolls"));
-      const batch = writeBatch(db);
 
-      snapshot.docs.forEach((rollDoc) => {
-        batch.delete(rollDoc.ref);
-      });
+      // O Firestore limita cada lote a 500 operacoes: apaga em lotes de 400, um de cada vez.
+      for (let inicio = 0; inicio < snapshot.docs.length; inicio += CLEAR_ROLLS_BATCH_SIZE) {
+        const batch = writeBatch(db);
 
-      await batch.commit();
+        snapshot.docs.slice(inicio, inicio + CLEAR_ROLLS_BATCH_SIZE).forEach((rollDoc) => {
+          batch.delete(rollDoc.ref);
+        });
+
+        await batch.commit();
+      }
     } catch (error) {
       console.error("Erro ao limpar historico de rolls:", error);
       setErro(formatFirebaseError("Nao foi possivel limpar o historico de rolls.", error));
