@@ -1,6 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { auth, db, firebaseConfigMissingKeys, isFirebaseConfigured } from "./firebase";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { useState, useEffect } from "react";
+import { db, firebaseConfigMissingKeys, isFirebaseConfigured } from "./firebase";
 import {
   collection,
   doc,
@@ -9,11 +8,7 @@ import {
   updateDoc,
   deleteDoc,
   addDoc,
-  getDocs,
-  writeBatch,
-  query,
-  orderBy,
-  limit
+  writeBatch
 } from "firebase/firestore";
 import CharacterCard from "./components/CharacterCard";
 import DiceRoller from "./components/DiceRoller";
@@ -21,205 +16,84 @@ import NovoPersonagem from "./components/NovoPersonagem";
 import IniciativaTracker from "./components/IniciativaTracker";
 import PainelMestre from "./components/PainelMestre";
 import QRCodeConvite from "./components/QRCodeConvite";
-import { generateRoomId, normalizeRoomId } from "./utils/salas";
 import { arquivoParaDataUrlComprimido, COVER_MAX_SIZE } from "./utils/imagem";
-import { normalizarPontosMedo } from "./utils/medo";
-import { SISTEMAS, SISTEMA_PADRAO, regraD20DaSala, sistemaDaSala } from "./utils/sistemas";
-import { rolarAtaqueComDano } from "./utils/dados";
-import {
-  estaOnline,
-  PRESENCE_HEARTBEAT_MS,
-  PRESENCE_MIN_GAP_MS,
-  PRESENCE_NAME_DEBOUNCE_MS
-} from "./utils/presenca";
-
-const DEFAULT_CAMPAIGN_NAME = "Nova Campanha";
-const ROOM_STORAGE_KEY = "rpg-table-room-id";
-const USER_NAME_STORAGE_KEY = "rpg-table-player-name";
-
-function formatFirebaseError(message, error) {
-  return error?.code ? `${message} (${error.code})` : message;
-}
-
-function getStoredPlayerName() {
-  return localStorage.getItem(USER_NAME_STORAGE_KEY) || "Jogador";
-}
-
-function getStoredRoomId() {
-  return normalizeRoomId(localStorage.getItem(ROOM_STORAGE_KEY)) || null;
-}
-
-function getRoomIdFromUrl() {
-  const params = new URLSearchParams(window.location.search);
-  return normalizeRoomId(params.get("sala")) || null;
-}
-
-// Sem sala na URL nem salva no navegador, o jogador cai no lobby (salaId === null).
-function getInitialRoomId() {
-  return getRoomIdFromUrl() || getStoredRoomId();
-}
-
-// "Visitante": entra pra assistir e rolar dados, sem registrar presenca (ver o motivo em
-// src/utils/presenca.js) e sem criar personagem. Pensado pra plateia entrando via QR code.
-function getInitialVisitante() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("visitante") === "1";
-}
+import { SISTEMAS, regraD20DaSala, sistemaDaSala } from "./utils/sistemas";
+import { estaOnline } from "./utils/presenca";
+import { formatFirebaseError } from "./utils/erros";
+import useAuth from "./hooks/useAuth";
+import useSala from "./hooks/useSala";
+import usePresenca from "./hooks/usePresenca";
+import usePersonagens from "./hooks/usePersonagens";
+import useRolls from "./hooks/useRolls";
+import useMestre from "./hooks/useMestre";
 
 function App() {
-  const [authUser, setAuthUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [playerName, setPlayerName] = useState(getStoredPlayerName);
-  const [salaId, setSalaId] = useState(getInitialRoomId);
-  const [salaInput, setSalaInput] = useState(() => getInitialRoomId() || "");
-  const [newRoomName, setNewRoomName] = useState("");
-  const [novoSistema, setNovoSistema] = useState(SISTEMA_PADRAO);
-  const [creatingRoom, setCreatingRoom] = useState(false);
-  const [roomLinkCopied, setRoomLinkCopied] = useState(false);
-  const [campanha, setCampanha] = useState({
-    id: "camp-1",
-    nome: DEFAULT_CAMPAIGN_NAME,
+  const { authUser, authLoading, playerName, setPlayerName, currentUser } = useAuth({
+    onErro: (mensagem) => {
+      setFirebaseErro(mensagem);
+      setCarregando(false);
+    }
   });
-  const [characters, setCharacters] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [firebaseErro, setFirebaseErro] = useState(null);
+  const {
+    salaId,
+    salaInput,
+    setSalaInput,
+    newRoomName,
+    setNewRoomName,
+    novoSistema,
+    setNovoSistema,
+    creatingRoom,
+    roomLinkCopied,
+    campanha,
+    isMestre,
+    bloqueado,
+    isVisitante,
+    entrarComoVisitante,
+    setEntrarComoVisitante,
+    salaShareUrl,
+    salaVisitanteUrl,
+    handleCreateRoom,
+    handleRoomSubmit,
+    handleLeaveRoom,
+    handleCopyRoomLink
+  } = useSala({ authUser, currentUser, setErro: setFirebaseErro });
   const [extras, setExtras] = useState([]);
   const [players, setPlayers] = useState([]);
-  const [rolls, setRolls] = useState([]);
-  const [activeCharacterId, setActiveCharacterId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditingCampaignName, setIsEditingCampaignName] = useState(false);
   const [campaignNameDraft, setCampaignNameDraft] = useState("");
-  const [carregando, setCarregando] = useState(true);
-  const [pontosMedo, setPontosMedo] = useState(0);
-  const [removidos, setRemovidos] = useState([]);
-  const [bloqueado, setBloqueado] = useState(false);
   const [abaMobile, setAbaMobile] = useState("fichas"); // "fichas" | "mesa" (so importa no celular)
-  const [isVisitante, setIsVisitante] = useState(getInitialVisitante);
-  const [entrarComoVisitante, setEntrarComoVisitante] = useState(false); // checkbox do lobby
-  const wasBlockedRef = useRef(false);
-  const [firebaseErro, setFirebaseErro] = useState(null);
 
-  const currentUser = useMemo(() => {
-    if (!authUser) return null;
-
-    return {
-      id: authUser.uid,
-      nome: playerName.trim() || `Jogador ${authUser.uid.slice(0, 6)}`,
-    };
-  }, [authUser, playerName]);
-  const isMestre = Boolean(currentUser && campanha.mestreId === currentUser.id);
-  const salaShareUrl = useMemo(() => {
-    if (!salaId) return "";
-
-    const url = new URL(window.location.href);
-    url.searchParams.set("sala", salaId);
-    return url.toString();
-  }, [salaId]);
-  // Link pra plateia: mesma sala, marcado como visitante (sem presenca, sem criar personagem).
-  // E o link que vira QR code na tela do mestre.
-  const salaVisitanteUrl = useMemo(() => {
-    if (!salaId) return "";
-
-    const url = new URL(window.location.href);
-    url.searchParams.set("sala", salaId);
-    url.searchParams.set("visitante", "1");
-    return url.toString();
-  }, [salaId]);
-
-  useEffect(() => {
-    localStorage.setItem(USER_NAME_STORAGE_KEY, playerName);
-  }, [playerName]);
-
-  useEffect(() => {
-    const url = new URL(window.location.href);
-
-    if (!salaId) {
-      localStorage.removeItem(ROOM_STORAGE_KEY);
-      if (url.searchParams.has("sala") || url.searchParams.has("visitante")) {
-        url.searchParams.delete("sala");
-        url.searchParams.delete("visitante");
-        window.history.replaceState(null, "", url.toString());
-      }
-      return;
-    }
-
-    localStorage.setItem(ROOM_STORAGE_KEY, salaId);
-
-    let precisaAtualizar = url.searchParams.get("sala") !== salaId;
-
-    if (isVisitante && url.searchParams.get("visitante") !== "1") {
-      url.searchParams.set("visitante", "1");
-      precisaAtualizar = true;
-    } else if (!isVisitante && url.searchParams.has("visitante")) {
-      url.searchParams.delete("visitante");
-      precisaAtualizar = true;
-    }
-
-    if (precisaAtualizar) {
-      url.searchParams.set("sala", salaId);
-      window.history.replaceState(null, "", url.toString());
-    }
-  }, [salaId, isVisitante]);
-
+  // Trocou de sala: limpa os dados da sala anterior (campanha e bloqueio sao limpos em
+  // useSala; personagens em usePersonagens; rolagens em useRolls; medo e removidos em useMestre).
   useEffect(() => {
     if (!salaId) return;
 
-    setCampanha({
-      id: "camp-1",
-      nome: DEFAULT_CAMPAIGN_NAME,
-    });
-    setCharacters([]);
     setExtras([]);
     setPlayers([]);
-    setRolls([]);
-    setActiveCharacterId(null);
-    setPontosMedo(0);
-    setRemovidos([]);
-    setBloqueado(false);
-    wasBlockedRef.current = false;
     setCarregando(true);
     setFirebaseErro(null);
   }, [salaId]);
 
-  useEffect(() => {
-    if (!isFirebaseConfigured) return undefined;
-
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setAuthUser(user);
-        setAuthLoading(false);
-        return;
-      }
-
-      signInAnonymously(auth).catch((error) => {
-        console.error("Erro ao autenticar anonimamente:", error);
-        setFirebaseErro(formatFirebaseError("Nao foi possivel autenticar no Firebase.", error));
-        setAuthLoading(false);
-        setCarregando(false);
-      });
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  
-  useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
-
-    const unsub = onSnapshot(
-      collection(db, "salas", salaId, "personagens"),
-      (snapshot) => {
-        const dados = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        setCharacters(dados);
-        setCarregando(false);
-      },
-      (error) => {
-        console.error("Erro ao carregar personagens:", error);
-        setFirebaseErro(formatFirebaseError("Nao foi possivel carregar os personagens no Firebase.", error));
-        setCarregando(false);
-      }
-    );
-    return () => unsub();
-  }, [authUser, salaId, bloqueado]);
+  const {
+    characters,
+    activeCharacterId,
+    setActiveCharacterId,
+    activeCharacter,
+    updateCharacter,
+    criarPersonagem,
+    deleteCharacter,
+    handleUpdateIniciativa
+  } = usePersonagens({
+    authUser,
+    currentUser,
+    salaId,
+    bloqueado,
+    setErro: setFirebaseErro,
+    setCarregando
+  });
 
  
   useEffect(() => {
@@ -257,240 +131,46 @@ function App() {
     return () => unsub();
   }, [authUser, salaId, bloqueado]);
 
- 
-  const presenceUserId = currentUser?.id;
-  const presenceName = currentUser?.nome;
+  usePresenca({
+    salaId,
+    userId: currentUser?.id,
+    nome: currentUser?.nome,
+    isMestre,
+    bloqueado,
+    isVisitante
+  });
 
-  // Presenca "preguicosa": ver src/utils/presenca.js para o motivo.
-  useEffect(() => {
-    if (!isFirebaseConfigured || !presenceUserId || !salaId || bloqueado || isVisitante) return undefined;
+  const { rolls, handleNewRoll, handleRolarAtaque, handleClearRolls } = useRolls({
+    authUser,
+    currentUser,
+    salaId,
+    bloqueado,
+    campanha,
+    isMestre,
+    activeCharacter,
+    setErro: setFirebaseErro
+  });
 
-    const playerRef = doc(db, "salas", salaId, "jogadores", presenceUserId);
-    let lastWrite = 0;
+  const {
+    pontosMedo,
+    removidos,
+    handleSetPontosMedo,
+    handleRemovePlayer,
+    handleReadmitirJogador
+  } = useMestre({
+    authUser,
+    currentUser,
+    salaId,
+    isMestre,
+    characters,
+    setErro: setFirebaseErro
+  });
 
-    function syncPresence() {
-      lastWrite = Date.now();
-
-      return setDoc(playerRef, {
-        nome: presenceName,
-        userId: presenceUserId,
-        isMestre,
-        lastSeen: lastWrite
-      }, { merge: true }).catch((error) => {
-        console.error("Erro ao atualizar presenca:", error);
-      });
-    }
-
-    // Espera o jogador parar de digitar o nome antes de gravar (evita uma gravacao por tecla).
-    const debounceId = window.setTimeout(syncPresence, PRESENCE_NAME_DEBOUNCE_MS);
-
-    // Batimento so com a aba visivel: celular no bolso nao gasta cota.
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") syncPresence();
-    }, PRESENCE_HEARTBEAT_MS);
-
-    function handleVisibilityChange() {
-      if (
-        document.visibilityState === "visible" &&
-        Date.now() - lastWrite > PRESENCE_MIN_GAP_MS
-      ) {
-        syncPresence();
-      }
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      window.clearTimeout(debounceId);
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [presenceUserId, presenceName, isMestre, salaId, bloqueado, isVisitante]);
-
- 
-  useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
-
-    const q = query(
-      collection(db, "salas", salaId, "rolls"),
-      orderBy("timestamp", "desc"),
-      limit(50)
-    );
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const dados = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        setRolls(dados);
-      },
-      (error) => {
-        console.error("Erro ao carregar historico de rolls:", error);
-        setFirebaseErro(formatFirebaseError("Nao foi possivel carregar o historico de rolls no Firebase.", error));
-      }
-    );
-    return () => unsub();
-  }, [authUser, salaId, bloqueado]);
-
-  
-  useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId || bloqueado) return undefined;
-
-    const unsub = onSnapshot(
-      doc(db, "salas", salaId),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          setCampanha((prev) => ({ ...prev, ...snapshot.data() }));
-        }
-      },
-      (error) => {
-        console.error("Erro ao carregar campanha:", error);
-        setFirebaseErro(formatFirebaseError("Nao foi possivel carregar os dados da campanha no Firebase.", error));
-      }
-    );
-    return () => unsub();
-  }, [authUser, salaId, bloqueado]);
-
- 
-  // Este jogador foi removido pelo mestre? (documento salas/{sala}/bloqueados/{meuId})
-  useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId) return undefined;
-
-    const unsub = onSnapshot(
-      doc(db, "salas", salaId, "bloqueados", authUser.uid),
-      (snapshot) => {
-        const foiRemovido = snapshot.exists();
-
-        // Foi readmitido: limpa os avisos de acesso negado da fase em que estava fora.
-        if (!foiRemovido && wasBlockedRef.current) setFirebaseErro(null);
-
-        wasBlockedRef.current = foiRemovido;
-        setBloqueado(foiRemovido);
-      },
-      (error) => {
-        console.warn("Nao foi possivel verificar se o jogador foi removido:", error);
-      }
-    );
-    return () => unsub();
-  }, [authUser, salaId]);
-
-  // Lista de removidos (somente o mestre le).
-  useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId || !isMestre) return undefined;
-
-    const unsub = onSnapshot(
-      collection(db, "salas", salaId, "bloqueados"),
-      (snapshot) => {
-        setRemovidos(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
-      },
-      (error) => {
-        if (error?.code === "permission-denied") return;
-        console.error("Erro ao carregar removidos:", error);
-        setFirebaseErro(formatFirebaseError("Nao foi possivel carregar os jogadores removidos.", error));
-      }
-    );
-    return () => unsub();
-  }, [authUser, salaId, isMestre]);
-
-  // Pontos de Medo (somente o mestre le).
-  useEffect(() => {
-    if (!isFirebaseConfigured || !authUser || !salaId || !isMestre) return undefined;
-
-    const unsub = onSnapshot(
-      doc(db, "salas", salaId, "mestre", "medo"),
-      (snapshot) => {
-        setPontosMedo(snapshot.exists() ? snapshot.data().pontos ?? 0 : 0);
-      },
-      (error) => {
-        if (error?.code === "permission-denied") return;
-        console.error("Erro ao carregar pontos de medo:", error);
-        setFirebaseErro(formatFirebaseError("Nao foi possivel carregar os pontos de medo.", error));
-      }
-    );
-    return () => unsub();
-  }, [authUser, salaId, isMestre]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    if (!activeCharacterId && characters.length > 0) {
-      const primeiro = characters.find((c) => c.ownerId === currentUser.id);
-      if (primeiro) setActiveCharacterId(primeiro.id);
-    }
-  }, [characters, currentUser, activeCharacterId]);
-
-  const activeCharacter = characters.find((c) => c.id === activeCharacterId);
   const combatState = campanha.combate || {
     ativo: false,
     turnoAtualId: null,
     rodada: 1
   };
-
-  
-
-  async function updateCharacter(updatedChar) {
-    if (!currentUser) return;
-
-    const { id, ...dados } = updatedChar;
-    try {
-      await updateDoc(doc(db, "salas", salaId, "personagens", id), dados);
-    } catch (error) {
-      console.error("Erro ao atualizar personagem:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel salvar as alteracoes do personagem.", error));
-    }
-  }
-
-  async function handleNewRoll(rollData) {
-    if (!currentUser) return;
-    try {
-      await addDoc(collection(db, "salas", salaId, "rolls"), {
-        ...rollData,
-        personagem: activeCharacter ? activeCharacter.nome : currentUser.nome,
-        personagemId: activeCharacter ? activeCharacter.id : null,
-        jogador: currentUser.nome,
-        userId: currentUser.id,
-        timestamp: Date.now()
-      });
-    } catch (error) {
-      console.error("Erro ao registrar roll:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel registrar a rolagem no Firebase.", error));
-    }
-  }
-
-  // Ataque fixo salvo na ficha ("Ataque Corrente: 3d6+2d6"): rola ataque + dano juntos e
-  // multiplica o dano se critar (ver src/utils/dados.js).
-  async function handleRolarAtaque(personagem, roll) {
-    if (!currentUser) return;
-
-    const resultado = rolarAtaqueComDano({
-      ataque: roll.ataque,
-      dano: roll.dano,
-      multiplicador: roll.multiplicador,
-      margemCritico: roll.margemCritico,
-      regraD20: regraD20DaSala(campanha)
-    });
-
-    if (!resultado.ok) {
-      window.alert(resultado.erro);
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, "salas", salaId, "rolls"), {
-        tipo: "ataque",
-        rotulo: roll.nome,
-        ataque: resultado.ataque,
-        dano: resultado.dano,
-        criticoFalha: resultado.critico ? "critico" : resultado.falha ? "falha" : null,
-        personagem: personagem.nome,
-        personagemId: personagem.id,
-        jogador: currentUser.nome,
-        userId: currentUser.id,
-        timestamp: Date.now()
-      });
-    } catch (error) {
-      console.error("Erro ao registrar ataque:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel registrar o ataque no Firebase.", error));
-    }
-  }
 
   async function handleCampanhaImageChange(e) {
     if (!currentUser || !isMestre) return;
@@ -509,44 +189,7 @@ function App() {
   }
 
   async function handleCriarPersonagem(novosDados) {
-    if (!currentUser) return;
-
-    try {
-      await addDoc(collection(db, "salas", salaId, "personagens"), {
-        ...novosDados,
-        ownerId: currentUser.id,
-        imagem: novosDados.imagem || null
-      });
-      setIsModalOpen(false);
-    } catch (error) {
-      console.error("Erro ao criar personagem:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel criar o personagem no Firebase.", error));
-    }
-  }
-
-  async function deleteCharacter(idParaDeletar) {
-    if (!currentUser) return;
-
-    try {
-      await deleteDoc(doc(db, "salas", salaId, "personagens", idParaDeletar));
-      if (activeCharacterId === idParaDeletar) setActiveCharacterId(null);
-    } catch (error) {
-      console.error("Erro ao excluir personagem:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel excluir o personagem no Firebase.", error));
-    }
-  }
-
-  async function handleUpdateIniciativa(charId, valor) {
-    if (!currentUser) return;
-
-    try {
-      await updateDoc(doc(db, "salas", salaId, "personagens", charId), {
-        iniciativa: valor
-      });
-    } catch (error) {
-      console.error("Erro ao atualizar iniciativa:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel atualizar a iniciativa no Firebase.", error));
-    }
+    if (await criarPersonagem(novosDados)) setIsModalOpen(false);
   }
 
   async function handleCreateExtra(extraData) {
@@ -745,151 +388,6 @@ function App() {
     } catch (error) {
       console.error("Erro ao limpar iniciativas:", error);
       setFirebaseErro(formatFirebaseError("Nao foi possivel limpar as iniciativas.", error));
-    }
-  }
-
-  async function handleClearRolls() {
-    if (!currentUser || !isMestre) return;
-
-    const confirmed = window.confirm("Limpar todo o historico de rolls desta sala?");
-    if (!confirmed) return;
-
-    try {
-      const snapshot = await getDocs(collection(db, "salas", salaId, "rolls"));
-      const batch = writeBatch(db);
-
-      snapshot.docs.forEach((rollDoc) => {
-        batch.delete(rollDoc.ref);
-      });
-
-      await batch.commit();
-    } catch (error) {
-      console.error("Erro ao limpar historico de rolls:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel limpar o historico de rolls.", error));
-    }
-  }
-
-  async function handleSetPontosMedo(valor) {
-    if (!currentUser || !isMestre) return;
-
-    const pontos = normalizarPontosMedo(valor);
-    if (pontos === null) return;
-
-    try {
-      await setDoc(doc(db, "salas", salaId, "mestre", "medo"), {
-        pontos,
-        updatedAt: Date.now()
-      }, { merge: true });
-    } catch (error) {
-      console.error("Erro ao atualizar pontos de medo:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel atualizar os pontos de medo.", error));
-    }
-  }
-
-  async function handleRemovePlayer(player) {
-    if (!currentUser || !isMestre || !player?.id || player.id === currentUser.id) return;
-
-    const nome = player.nome || "Jogador";
-    const personagensDele = characters.filter((char) => char.ownerId === player.id);
-    const total = personagensDele.length;
-
-    const aviso = total === 0
-      ? `Remover ${nome} da campanha?`
-      : `Remover ${nome} da campanha? ${total === 1 ? "O personagem dele tambem sera excluido" : `Os ${total} personagens dele tambem serao excluidos`}.`;
-
-    if (!window.confirm(aviso)) return;
-
-    try {
-      const batch = writeBatch(db);
-
-      batch.set(doc(db, "salas", salaId, "bloqueados", player.id), {
-        nome,
-        bloqueadoPor: currentUser.id,
-        bloqueadoEm: Date.now()
-      });
-      batch.delete(doc(db, "salas", salaId, "jogadores", player.id));
-      personagensDele.forEach((char) => {
-        batch.delete(doc(db, "salas", salaId, "personagens", char.id));
-      });
-
-      await batch.commit();
-    } catch (error) {
-      console.error("Erro ao remover jogador:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel remover o jogador.", error));
-    }
-  }
-
-  async function handleReadmitirJogador(playerId) {
-    if (!currentUser || !isMestre || !playerId) return;
-
-    try {
-      await deleteDoc(doc(db, "salas", salaId, "bloqueados", playerId));
-    } catch (error) {
-      console.error("Erro ao readmitir jogador:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel readmitir o jogador.", error));
-    }
-  }
-
-  async function handleCreateRoom(e) {
-    e.preventDefault();
-    if (!currentUser || creatingRoom) return;
-
-    const nextSalaId = generateRoomId();
-    const nome = newRoomName.trim() || DEFAULT_CAMPAIGN_NAME;
-    const sistemaEscolhido = SISTEMAS[novoSistema] ? novoSistema : SISTEMA_PADRAO;
-    const { regraD20 } = SISTEMAS[sistemaEscolhido];
-    setCreatingRoom(true);
-    setFirebaseErro(null);
-
-    try {
-      setIsVisitante(false); // quem cria a sala e o mestre, nunca visitante
-      // Quem cria a sala ja nasce como mestre (permitido por firestore.rules).
-      await setDoc(doc(db, "salas", nextSalaId), {
-        nome,
-        mestreId: currentUser.id,
-        mestreNome: currentUser.nome,
-        sistema: sistemaEscolhido,
-        regraD20,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      });
-      setNewRoomName("");
-      setSalaInput(nextSalaId);
-      setSalaId(nextSalaId);
-    } catch (error) {
-      console.error("Erro ao criar sala:", error);
-      setFirebaseErro(formatFirebaseError("Nao foi possivel criar a sala.", error));
-    } finally {
-      setCreatingRoom(false);
-    }
-  }
-
-  function handleRoomSubmit(e) {
-    e.preventDefault();
-    const nextSalaId = normalizeRoomId(salaInput);
-    if (!nextSalaId) return;
-
-    setFirebaseErro(null);
-    setSalaInput(nextSalaId);
-    setIsVisitante(entrarComoVisitante);
-    setSalaId(nextSalaId);
-  }
-
-  function handleLeaveRoom() {
-    setSalaInput("");
-    setSalaId(null);
-    setIsVisitante(false);
-    setEntrarComoVisitante(false);
-  }
-
-  async function handleCopyRoomLink() {
-    try {
-      await navigator.clipboard.writeText(salaShareUrl);
-      setRoomLinkCopied(true);
-      window.setTimeout(() => setRoomLinkCopied(false), 1800);
-    } catch (error) {
-      console.error("Erro ao copiar link da sala:", error);
-      setFirebaseErro("Nao foi possivel copiar o link da sala automaticamente.");
     }
   }
 
