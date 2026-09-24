@@ -2,6 +2,8 @@
 
 Mesa virtual para RPG de mesa, com sincronização em tempo real entre todos os participantes. Criado inicialmente para campanhas de Ordem Paranormal, o projeto também oferece predefinições para D&D 5e, Tormenta 20 e um modo genérico.
 
+🔗 **Acesse:** https://rpg-table-4922a.web.app
+
 A aplicação é construída com React e utiliza Firebase Authentication (login anônimo) e Cloud Firestore para manter personagens, jogadores, rolagens, NPCs e iniciativa sincronizados.
 
 ## Funcionalidades
@@ -174,3 +176,9 @@ Quem abrir o link entra diretamente na sala. Para o público, o mestre dispõe d
 - O modo visitante é uma restrição apenas da interface: as regras do Firestore não distinguem visitantes. Para torná-lo uma restrição efetiva, é necessário refleti-lo em `firestore.rules`.
 - Ampliar a cobertura de testes para `App.js` e para os hooks; hoje os testes automatizados cobrem os utilitários, o painel do mestre e as regras do Firestore.
 - Extrair para hooks a edição da campanha (nome, capa, combate e papel de mestre), os NPCs e a lista de jogadores, que ainda estão em `App.js`.
+
+## Autor
+
+**Cauê F. Abreu**
+
+[GitHub](https://github.com/CaueFAbreu)
