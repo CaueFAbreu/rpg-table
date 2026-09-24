@@ -1,20 +1,29 @@
 import { useState } from "react";
 
-export default function IniciativaTracker({ characters, currentUser, onUpdateIniciativa }) {
+export default function IniciativaTracker({
+  characters,
+  extras = [],
+  combatState,
+  currentUser,
+  isMestre,
+  onUpdateIniciativa,
+  onCreateExtra,
+  onUpdateExtra,
+  onDeleteExtra,
+  onStartCombat,
+  onNextTurn,
+  onEndCombat,
+  onResetInitiatives
+}) {
   const [editandoId, setEditandoId] = useState(null);
   const [tempValor, setTempValor] = useState("");
-  const [turnoAtualIndex, setTurnoAtualIndex] = useState(null);
-
-  // Extras são inimigos/NPCs adicionados manualmente
-  const [extras, setExtras] = useState([]);
   const [adicionandoExtra, setAdicionandoExtra] = useState(false);
   const [novoExtraNome, setNovoExtraNome] = useState("");
   const [novoExtraIniciativa, setNovoExtraIniciativa] = useState("");
 
-  // Junta personagens reais com extras
   const todos = [
-    ...characters.map(c => ({ ...c, _tipo: "personagem" })),
-    ...extras.map(e => ({ ...e, _tipo: "extra" }))
+    ...characters.map((c) => ({ ...c, _tipo: "personagem" })),
+    ...extras.map((e) => ({ ...e, _tipo: "extra" }))
   ];
 
   const ordenados = [...todos].sort((a, b) => {
@@ -23,15 +32,23 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
     return ib - ia;
   });
 
-  const temIniciativas = ordenados.some(c => c.iniciativa !== undefined && c.iniciativa !== null);
+  const temIniciativas = ordenados.some(
+    (c) => c.iniciativa !== undefined && c.iniciativa !== null
+  );
+
+  const charDoTurnoAtual = combatState?.ativo
+    ? ordenados.find((char) => char.id === combatState.turnoAtualId)
+    : null;
 
   function handleClick(char) {
     if (char._tipo === "extra") {
+      if (!isMestre) return;
       setEditandoId(char.id);
       setTempValor(char.iniciativa ?? "");
       return;
     }
-    if (char.ownerId !== currentUser.id) return;
+
+    if (!isMestre && char.ownerId !== currentUser.id) return;
     setEditandoId(char.id);
     setTempValor(char.iniciativa ?? "");
   }
@@ -40,7 +57,7 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
     const valor = Number(tempValor);
     if (!isNaN(valor)) {
       if (char._tipo === "extra") {
-        setExtras(prev => prev.map(e => e.id === char.id ? { ...e, iniciativa: valor } : e));
+        onUpdateExtra(char.id, { iniciativa: valor });
       } else {
         onUpdateIniciativa(char.id, valor);
       }
@@ -50,55 +67,65 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
   }
 
   function handleAdicionarExtra() {
-    if (!novoExtraNome.trim()) return;
-    const novoExtra = {
-      id: `extra-${Date.now()}`,
+    if (!isMestre || !novoExtraNome.trim()) return;
+
+    onCreateExtra({
       nome: novoExtraNome.trim(),
       classe: "Inimigo",
       iniciativa: novoExtraIniciativa !== "" ? Number(novoExtraIniciativa) : null,
       imagem: null,
       _tipo: "extra"
-    };
-    setExtras(prev => [...prev, novoExtra]);
+    });
     setNovoExtraNome("");
     setNovoExtraIniciativa("");
     setAdicionandoExtra(false);
   }
 
   function handleRemoverExtra(id) {
-    setExtras(prev => prev.filter(e => e.id !== id));
-    if (turnoAtualIndex !== null) setTurnoAtualIndex(0);
+    if (!isMestre) return;
+    onDeleteExtra(id);
   }
 
   function handleIniciarCombate() {
-    setTurnoAtualIndex(0);
+    if (!isMestre || ordenados.length === 0) return;
+    onStartCombat(ordenados[0].id);
   }
 
   function handlePassarTurno() {
-    if (turnoAtualIndex === null || ordenados.length === 0) return;
-    setTurnoAtualIndex((prev) => (prev + 1) % ordenados.length);
+    if (!isMestre || !combatState?.ativo || ordenados.length === 0) return;
+
+    const currentIndex = ordenados.findIndex(
+      (char) => char.id === combatState.turnoAtualId
+    );
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (safeCurrentIndex + 1) % ordenados.length;
+    const nextRound = nextIndex === 0
+      ? (combatState.rodada || 1) + 1
+      : (combatState.rodada || 1);
+
+    onNextTurn(ordenados[nextIndex].id, nextRound);
   }
 
   function handleEncerrarCombate() {
-    setTurnoAtualIndex(null);
+    if (!isMestre) return;
+    onEndCombat();
   }
-
-  const charDoTurnoAtual = turnoAtualIndex !== null ? ordenados[turnoAtualIndex] : null;
 
   return (
     <div className="bg-black/20 border border-[#b82870]/30 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-bold tracking-widest text-sm">⚔️ INICIATIVA</h3>
-        <button
-          onClick={() => setAdicionandoExtra(true)}
-          className="w-6 h-6 rounded-full bg-[#b82870] hover:bg-[#9a205d] text-white font-bold text-sm flex items-center justify-center transition"
-          title="Adicionar inimigo / NPC"
-        >
-          +
-        </button>
+        <h3 className="font-bold tracking-widest text-sm">INICIATIVA</h3>
+        {isMestre && (
+          <button
+            onClick={() => setAdicionandoExtra(true)}
+            className="w-6 h-6 rounded-full bg-[#b82870] hover:bg-[#9a205d] text-white font-bold text-sm flex items-center justify-center transition"
+            title="Adicionar inimigo / NPC"
+          >
+            +
+          </button>
+        )}
       </div>
 
-      {/* FORMULÁRIO DE PERSONAGEM EXTRA */}
       {adicionandoExtra && (
         <div className="mb-3 bg-black/40 border border-[#b82870]/50 rounded-lg p-3 flex flex-col gap-2">
           <input
@@ -126,7 +153,11 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
               Adicionar
             </button>
             <button
-              onClick={() => { setAdicionandoExtra(false); setNovoExtraNome(""); setNovoExtraIniciativa(""); }}
+              onClick={() => {
+                setAdicionandoExtra(false);
+                setNovoExtraNome("");
+                setNovoExtraIniciativa("");
+              }}
               className="flex-1 bg-black/40 hover:bg-black/60 border border-gray-700 text-gray-400 text-sm py-1.5 rounded transition"
             >
               Cancelar
@@ -137,7 +168,7 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
 
       <div className="flex flex-col gap-2 mb-4">
         {ordenados.map((char, index) => {
-          const isOwner = char._tipo === "extra" || char.ownerId === currentUser.id;
+          const isOwner = isMestre || char.ownerId === currentUser.id;
           const isEditando = editandoId === char.id;
           const temIniciativa = char.iniciativa !== undefined && char.iniciativa !== null;
           const isVezDele = charDoTurnoAtual?.id === char.id;
@@ -156,14 +187,12 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
                 }
               `}
             >
-              {/* Posição */}
               <span className={`text-xs font-bold w-5 text-center
                 ${index === 0 ? "text-yellow-400" : index === 1 ? "text-gray-300" : index === 2 ? "text-orange-400" : "text-gray-600"}
               `}>
-                {temIniciativa ? `${index + 1}º` : "—"}
+                {temIniciativa ? `${index + 1}o` : "-"}
               </span>
 
-              {/* Avatar */}
               {char.imagem ? (
                 <img src={char.imagem} alt={char.nome} className="w-8 h-8 rounded-full object-cover border border-gray-700" />
               ) : (
@@ -173,22 +202,24 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
                     : "bg-[#3a1428] border-gray-700 text-[#b82870]"
                   }`}
                 >
-                  {char._tipo === "extra" ? "💀" : char.nome?.[0]?.toUpperCase()}
+                  {char._tipo === "extra" ? "NPC" : char.nome?.[0]?.toUpperCase()}
                 </div>
               )}
 
-              {/* Nome + Tipo */}
               <div className="flex-1 min-w-0">
                 <p className={`text-sm font-bold truncate ${isVezDele ? "text-yellow-300" : char._tipo === "extra" ? "text-gray-300" : "text-white"}`}>
                   {char.nome}
-                  {isVezDele && <span className="ml-2 text-[10px] text-yellow-400 font-bold tracking-widest">● VEZ</span>}
+                  {isVezDele && (
+                    <span className="ml-2 text-[10px] text-yellow-400 font-bold tracking-widest">
+                      VEZ
+                    </span>
+                  )}
                 </p>
                 <p className={`text-xs truncate ${char._tipo === "extra" ? "text-gray-500" : "text-[#b82870]"}`}>
                   {char.classe}
                 </p>
               </div>
 
-              {/* Valor + remover (extras) */}
               <div className="shrink-0 flex items-center gap-1">
                 {isEditando ? (
                   <input
@@ -215,17 +246,20 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
                         : "text-gray-600 border-gray-800 bg-black/20 text-sm"
                     }`}
                   >
-                    {temIniciativa ? char.iniciativa : isOwner ? "clique" : "—"}
+                    {temIniciativa ? char.iniciativa : isOwner ? "clique" : "-"}
                   </div>
                 )}
 
-                {char._tipo === "extra" && (
+                {char._tipo === "extra" && isMestre && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleRemoverExtra(char.id); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoverExtra(char.id);
+                    }}
                     className="text-gray-600 hover:text-red-400 text-xs font-bold ml-1 transition"
                     title="Remover"
                   >
-                    ✕
+                    x
                   </button>
                 )}
               </div>
@@ -238,32 +272,49 @@ export default function IniciativaTracker({ characters, currentUser, onUpdateIni
         )}
       </div>
 
-      {/* BOTÕES DE COMBATE */}
       {temIniciativas && (
-        <div className="flex gap-2 mt-2">
-          {turnoAtualIndex === null ? (
-            <button
-              onClick={handleIniciarCombate}
-              className="flex-1 bg-[#b82870] hover:bg-[#9a205d] text-white text-sm font-bold py-2 rounded-lg transition shadow-lg shadow-[#b82870]/20"
-            >
-              ⚔️ Iniciar Combate
-            </button>
-          ) : (
-            <>
+        <div className="mt-2">
+          {combatState?.ativo && (
+            <div className="mb-2 rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-3 py-2 text-center text-xs font-bold uppercase tracking-widest text-yellow-200">
+              Rodada {combatState.rodada || 1}
+            </div>
+          )}
+
+          {isMestre && (
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                {!combatState?.ativo ? (
+                  <button
+                    onClick={handleIniciarCombate}
+                    className="flex-1 bg-[#b82870] hover:bg-[#9a205d] text-white text-sm font-bold py-2 rounded-lg transition shadow-lg shadow-[#b82870]/20"
+                  >
+                    Iniciar Combate
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handlePassarTurno}
+                      className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold py-2 rounded-lg transition shadow-lg shadow-yellow-500/20"
+                    >
+                      Passar Turno
+                    </button>
+                    <button
+                      onClick={handleEncerrarCombate}
+                      className="bg-black/40 hover:bg-red-900/40 border border-gray-700 hover:border-red-500 text-gray-400 hover:text-red-400 text-sm font-bold px-3 py-2 rounded-lg transition"
+                      title="Encerrar Combate"
+                    >
+                      x
+                    </button>
+                  </>
+                )}
+              </div>
               <button
-                onClick={handlePassarTurno}
-                className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold py-2 rounded-lg transition shadow-lg shadow-yellow-500/20"
+                onClick={onResetInitiatives}
+                className="w-full bg-black/40 hover:bg-red-900/30 border border-gray-700 hover:border-red-500 text-gray-400 hover:text-red-300 text-xs font-bold py-2 rounded-lg transition"
               >
-                ▶ Passar Turno
+                Limpar Iniciativas
               </button>
-              <button
-                onClick={handleEncerrarCombate}
-                className="bg-black/40 hover:bg-red-900/40 border border-gray-700 hover:border-red-500 text-gray-400 hover:text-red-400 text-sm font-bold px-3 py-2 rounded-lg transition"
-                title="Encerrar Combate"
-              >
-                ✕
-              </button>
-            </>
+            </div>
           )}
         </div>
       )}

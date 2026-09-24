@@ -1,13 +1,13 @@
 import { useState } from "react";
+import { arquivoParaDataUrlComprimido, AVATAR_MAX_SIZE } from "../utils/imagem";
+import { CORES_MARCADOR, gerarIdMarcador, marcadoresPadrao, validarMarcador } from "../utils/marcadores";
 
-export default function NovoPersonagem({ onClose, onSave }) {
+export default function NovoPersonagem({ onClose, onSave, sistema }) {
   const [nome, setNome] = useState("");
   const [classe, setClasse] = useState("");
   const [imagem, setImagem] = useState(null);
   
-  const [vida, setVida] = useState(100);
-  const [sanidade, setSanidade] = useState(100);
-  const [esforco, setEsforco] = useState(50);
+  const [marcadores, setMarcadores] = useState(() => marcadoresPadrao(sistema));
   
   const [nex, setNex] = useState("5%");
   const [peTurno, setPeTurno] = useState(1);
@@ -17,15 +17,30 @@ export default function NovoPersonagem({ onClose, onSave }) {
   const [bloqueio, setBloqueio] = useState(0);
   const [esquiva, setEsquiva] = useState(0);
 
-  function handleImageChange(e) {
+  function editarMarcador(id, patch) {
+    setMarcadores((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }
+
+  function removerMarcador(id) {
+    setMarcadores((prev) => prev.filter((m) => m.id !== id));
+  }
+
+  function adicionarMarcador() {
+    const cor = CORES_MARCADOR[marcadores.length % CORES_MARCADOR.length].valor;
+    setMarcadores((prev) => [...prev, { id: gerarIdMarcador(), nome: "Novo", atual: 10, max: 10, cor }]);
+  }
+
+  async function handleImageChange(e) {
     const file = e.target.files[0];
+    e.target.value = "";
     if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImagem(reader.result);
-    };
-    reader.readAsDataURL(file);
+
+    try {
+      setImagem(await arquivoParaDataUrlComprimido(file, AVATAR_MAX_SIZE));
+    } catch (error) {
+      console.error("Erro ao processar imagem:", error);
+      alert("Nao foi possivel usar essa imagem. Tente outra foto.");
+    }
   }
 
   function handleSubmit(e) {
@@ -35,13 +50,26 @@ export default function NovoPersonagem({ onClose, onSave }) {
       return;
     }
 
+    if (marcadores.length === 0) {
+      alert("Adicione pelo menos um marcador, por exemplo Vida.");
+      return;
+    }
+
+    const marcadoresValidados = [];
+    for (const marcador of marcadores) {
+      const validado = validarMarcador(marcador);
+      if (!validado.ok) {
+        alert(validado.erro);
+        return;
+      }
+      marcadoresValidados.push(validado.marcador);
+    }
+
     onSave({
       nome,
       classe,
       imagem,
-      vida: Number(vida),
-      sanidade: Number(sanidade),
-      esforco: Number(esforco),
+      marcadores: marcadoresValidados,
       nex,
       peTurno: Number(peTurno),
       deslocamento,
@@ -94,19 +122,41 @@ export default function NovoPersonagem({ onClose, onSave }) {
 
           <hr className="border-[#b82870]/30" />
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="text-red-400 text-xs font-bold mb-1 block tracking-wider">❤️ VIDA</label>
-              <input type="number" value={vida} onChange={(e) => setVida(e.target.value)} className="w-full bg-black/40 border border-red-900/50 rounded p-2 text-white text-center font-bold outline-none focus:border-red-500" />
+          <div>
+            <label className="text-gray-400 text-xs font-bold mb-2 block tracking-wider">MARCADORES (Vida, Sanidade, PM...)</label>
+            <div className="flex flex-col gap-2">
+              {marcadores.map((m) => (
+                <div key={m.id} className="flex items-center gap-2">
+                  <input
+                    value={m.nome}
+                    onChange={(e) => editarMarcador(m.id, { nome: e.target.value })}
+                    placeholder="Nome"
+                    className="flex-1 bg-black/40 border border-gray-700 focus:border-[#b82870] outline-none rounded p-2 text-white text-sm"
+                  />
+                  <input
+                    type="number"
+                    value={m.max}
+                    onChange={(e) => editarMarcador(m.id, { max: e.target.value, atual: e.target.value })}
+                    className="w-20 bg-black/40 border border-gray-700 focus:border-[#b82870] outline-none rounded p-2 text-white text-center text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removerMarcador(m.id)}
+                    className="rounded border border-red-500/40 px-2 py-2 text-xs text-red-300 hover:bg-red-500/10"
+                    title="Remover marcador"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
-            <div>
-              <label className="text-purple-400 text-xs font-bold mb-1 block tracking-wider">🧠 SANIDADE</label>
-              <input type="number" value={sanidade} onChange={(e) => setSanidade(e.target.value)} className="w-full bg-black/40 border border-purple-900/50 rounded p-2 text-white text-center font-bold outline-none focus:border-purple-500" />
-            </div>
-            <div>
-              <label className="text-orange-400 text-xs font-bold mb-1 block tracking-wider">⚡ ESFORÇO</label>
-              <input type="number" value={esforco} onChange={(e) => setEsforco(e.target.value)} className="w-full bg-black/40 border border-orange-900/50 rounded p-2 text-white text-center font-bold outline-none focus:border-orange-500" />
-            </div>
+            <button
+              type="button"
+              onClick={adicionarMarcador}
+              className="mt-2 w-full rounded border border-dashed border-gray-600 py-1.5 text-xs font-bold text-gray-400 transition hover:border-[#b82870] hover:text-[#f0a3ca]"
+            >
+              + Marcador
+            </button>
           </div>
 
           <div className="grid grid-cols-3 gap-3">

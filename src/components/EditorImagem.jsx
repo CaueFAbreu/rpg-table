@@ -13,14 +13,20 @@ export default function EditorImagem({ image, onClose, onSave }) {
 
   async function handleSave() {
     if (!croppedAreaPixels) return;
-    const croppedImage = await ImagemEditada(image, croppedAreaPixels);
-    onSave(croppedImage);
-    onClose();
+
+    try {
+      const croppedImage = await ImagemEditada(image, croppedAreaPixels);
+      onSave(croppedImage);
+      onClose();
+    } catch (error) {
+      console.error("Erro ao recortar imagem:", error);
+      alert("Nao foi possivel salvar essa imagem. Tente outra foto.");
+    }
   }
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black/90 flex items-center justify-center z-[99999] backdrop-blur-sm">
-      <div className="bg-[#250617] p-6 rounded-2xl w-[420px] h-[520px] flex flex-col border border-[#b82870]/50 shadow-[0_0_30px_rgba(184,40,112,0.2)]">
+      <div className="bg-[#250617] p-6 rounded-2xl w-[min(420px,94vw)] h-[min(520px,90vh)] flex flex-col border border-[#b82870]/50 shadow-[0_0_30px_rgba(184,40,112,0.2)]">
         
         <div className="relative flex-1 rounded-xl overflow-hidden bg-black/50 border border-gray-700">
           <Cropper

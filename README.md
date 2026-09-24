@@ -1,119 +1,184 @@
-# 🎲 RPG Table
+# RPG Table
 
-![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=white)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
-![Status](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow?style=for-the-badge)
+Mesa virtual para RPG de mesa, com sincronização em tempo real entre todos os participantes. Criado inicialmente para campanhas de Ordem Paranormal, o projeto também oferece predefinições para D&D 5e, Tormenta 20 e um modo genérico.
 
-> Mesa virtual para sessões de RPG de mesa, desenvolvida em React. Focada no sistema **Ordem Paranormal RPG**, com gerenciamento de personagens, rolagem de dados, tracker de iniciativa e inventário — tudo salvo automaticamente no navegador.
+🔗 **Acesse:** https://rpg-table-4922a.web.app
 
----
+A aplicação é construída com React e utiliza Firebase Authentication (login anônimo) e Cloud Firestore para manter personagens, jogadores, rolagens, NPCs e iniciativa sincronizados.
 
-## 📋 Índice
+## Funcionalidades
 
-- [Sobre o Projeto](#-sobre-o-projeto)
-- [Funcionalidades](#-funcionalidades)
-- [Tecnologias](#-tecnologias)
-- [Como Executar](#-como-executar)
-- [Estrutura do Projeto](#-estrutura-do-projeto)
-- [Autor](#-autor)
+### Salas e jogadores
 
----
+- Salas privadas identificadas por um código aleatório de 10 caracteres, sem caracteres ambíguos. O código funciona como convite: as regras do Firestore não permitem listar salas.
+- Lobby para criar uma sala, escolhendo o sistema de jogo, ou entrar em uma sala existente pelo código. Quem cria a sala torna-se o mestre.
+- Link de convite (`?sala=`) e QR code exibido na tela do mestre, destinado ao público.
+- Modo visitante (`?visitante=1`): permite acompanhar a mesa e rolar dados, sem registrar presença nem criar personagens.
+- Identificação de cada jogador por login anônimo do Firebase.
+- Papel de mestre por sala, com possibilidade de transferência para outro jogador.
+- Lista de jogadores com indicador de presença, com atualização espaçada para reduzir o consumo da cota do Firestore.
 
-## 📖 Sobre o Projeto
+### Fichas de personagem
 
-Aplicação web para auxiliar sessões de RPG de mesa, especialmente voltada para o sistema **Ordem Paranormal**. Permite que múltiplos jogadores gerenciem seus personagens em tempo real na mesma tela, com fichas completas, rolador de dados customizável e controle de combate com iniciativa.
+- Marcadores configuráveis (Vida, Sanidade, Esforço, PM etc.), com valores iniciais definidos pelo sistema da sala.
+- Condições rápidas, com sugestões ("Sangrando", "Apavorado" etc.) ou texto livre.
+- Ataques pré-configurados, com margem de crítico e multiplicador de dano.
+- Inventário, link para a ficha completa e envio de avatar com recorte; as imagens são comprimidas antes de serem salvas.
+- Criação, edição e exclusão de personagens pelo próprio jogador.
 
-Todos os dados são persistidos automaticamente via **localStorage**, sem necessidade de banco de dados ou login.
+### Mesa
 
----
+- Rolador de dados genérico, que respeita a regra de d20 de cada sistema (maior resultado ou soma).
+- Histórico de rolagens sincronizado, exibindo as 50 mais recentes; o mestre pode limpar o histórico.
+- Controle de iniciativa com personagens e NPCs, contagem de rodadas e passagem de turno.
+- Navegação por abas ("Fichas" e "Mesa") em dispositivos móveis.
 
-## ✅ Funcionalidades
+### Painel do mestre
 
-- [x] **Fichas de personagem** com Vida, Sanidade e Esforço com barras de progresso
-- [x] **Edição inline** de todos os campos da ficha (clique direto para editar)
-- [x] **Upload e recorte de avatar** com editor de imagem integrado (react-easy-crop)
-- [x] **Rolador de dados** com suporte a expressões customizadas (ex: `2d8 + 1d4 + 5`)
-- [x] **Detecção de crítico e falha crítica** no D20
-- [x] **Histórico de rolls** com nome do personagem, expressão e resultado
-- [x] **Tracker de iniciativa** com ordenação automática por valor
-- [x] **Suporte a inimigos/NPCs** no tracker de iniciativa
-- [x] **Controle de turnos** de combate (Iniciar, Passar Turno, Encerrar)
-- [x] **Inventário** por personagem com adição e remoção de itens
-- [x] **Criação de personagens** via modal com todos os atributos
-- [x] **Imagem de capa** da campanha personalizável
-- [x] **Persistência automática** via localStorage
-- [ ] Modo multiplayer online (em desenvolvimento)
-- [ ] Sistema de habilidades e rituais
+- Pontos de Medo (regra da casa), visíveis apenas para o mestre.
+- Visão geral de todos os personagens, com marcadores e condições de cada um.
+- Remoção de jogadores (os personagens do jogador são excluídos junto) e readmissão posterior.
 
----
+## Tecnologias
 
-## 🛠️ Tecnologias
+- React 19 com Create React App (`react-scripts`)
+- Tailwind CSS 3
+- Firebase Authentication, Cloud Firestore e Firebase Hosting
+- react-easy-crop e qrcode
+- Jest e Testing Library; `@firebase/rules-unit-testing` para as regras do Firestore
 
-- **React 19** — interface e gerenciamento de estado
-- **Tailwind CSS 3** — estilização utilitária
-- **react-easy-crop** — editor de recorte de imagens
-- **localStorage** — persistência local dos dados
+## Pré-requisitos
 
----
+- Node.js 20 ou superior
+- Um projeto no Firebase
+- Firebase CLI, para deploy e para os testes das regras
+- Java (JDK 21 ou superior), apenas para executar o emulador do Firestore
 
-## 🚀 Como Executar
+## Configuração local
 
-**1. Clone o repositório:**
+1. Instale as dependências:
+
+   ```bash
+   npm install
+   ```
+
+2. Crie o arquivo de ambiente a partir do exemplo:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+   No Prompt de Comando do Windows, use `copy .env.example .env.local`.
+
+3. Preencha o `.env.local` com a configuração do aplicativo Web do Firebase:
+
+   ```env
+   REACT_APP_FIREBASE_API_KEY=
+   REACT_APP_FIREBASE_AUTH_DOMAIN=
+   REACT_APP_FIREBASE_PROJECT_ID=
+   REACT_APP_FIREBASE_STORAGE_BUCKET=
+   REACT_APP_FIREBASE_MESSAGING_SENDER_ID=
+   REACT_APP_FIREBASE_APP_ID=
+   ```
+
+4. No Console do Firebase, habilite:
+
+   - Authentication > Método de login > Anônimo
+   - Firestore Database
+   - Firebase Hosting, caso a publicação seja feita pelo Firebase
+
+5. Inicie a aplicação:
+
+   ```bash
+   npm start
+   ```
+
+   A aplicação estará disponível em `http://localhost:3000`.
+
+## Testes
+
+Testes unitários dos utilitários e componentes em `src/`:
+
 ```bash
-git clone https://github.com/CaueFAbreu/rpg-table.git
-cd rpg-table
+npm test -- --watchAll=false
 ```
 
-**2. Instale as dependências:**
+Testes das regras de segurança do Firestore, executados contra o emulador local, sem acessar o projeto real:
+
 ```bash
-npm install
+npm run test:rules
 ```
 
-**3. Inicie o servidor de desenvolvimento:**
+Os testes das regras ficam em `tests/firestore.rules.test.js` e usam uma configuração própria do Jest (`jest.rules.config.js`).
+
+### Integração contínua
+
+O workflow `.github/workflows/ci.yml` executa os testes unitários e o build de produção a cada push e pull request. Para que o build tenha acesso ao Firebase, cadastre as variáveis `REACT_APP_FIREBASE_*` em **Settings > Secrets and variables > Actions**.
+
+## Estrutura do projeto
+
+```text
+src/
+├── App.js              Telas da aplicação (lobby, sala, acesso removido)
+├── firebase.js         Inicialização do Firebase
+├── hooks/
+│   ├── useAuth.js          Login anônimo e nome do jogador
+│   ├── useSala.js          Sala atual, convite, criação, entrada e saída
+│   ├── usePresenca.js      Indicador de presença dos jogadores
+│   ├── usePersonagens.js   Personagens da sala e personagem ativo
+│   ├── useRolls.js         Histórico de rolagens e rolagens de ataque
+│   └── useMestre.js        Pontos de Medo e remoção/readmissão de jogadores
+├── components/         Ficha, rolador de dados, iniciativa, painel do mestre etc.
+└── utils/              Regras de negócio puras (dados, marcadores, sistemas etc.), com testes
+tests/
+└── firestore.rules.test.js   Testes das regras de segurança
+firestore.rules         Regras de segurança do Firestore
+```
+
+## Regras do Firestore
+
+As regras de segurança ficam em `firestore.rules`. Antes de publicá-las, execute `npm run test:rules`. Para publicar somente as regras:
+
 ```bash
-npm start
+npm run deploy:rules
 ```
 
-Acesse [http://localhost:3000](http://localhost:3000) no navegador.
+## Build e deploy
 
-**Para build de produção:**
+Os scripts de deploy exigem o Firebase CLI instalado e autenticado:
+
 ```bash
-npm run build
+npm install -g firebase-tools
+firebase login
 ```
 
----
+| Comando | Descrição |
+| --- | --- |
+| `npm run build` | Gera o build de produção na pasta `build/` |
+| `npm run deploy` | Gera o build e publica tudo no Firebase |
+| `npm run deploy:hosting` | Gera o build e publica somente o Hosting |
+| `npm run deploy:rules` | Publica somente as regras do Firestore |
 
-## 📁 Estrutura do Projeto
+## Como compartilhar uma sala
 
-```
-📦 rpg-table
- ┣ 📂 public/
- ┃ ┗ 📄 index.html
- ┣ 📂 src/
- ┃ ┣ 📂 components/
- ┃ ┃ ┣ 📄 CharacterCard.jsx       # Ficha completa do personagem com edição inline
- ┃ ┃ ┣ 📄 DiceRoller.jsx          # Rolador de dados com suporte a expressões livres
- ┃ ┃ ┣ 📄 EditorImagem.jsx        # Modal de recorte de avatar (react-easy-crop)
- ┃ ┃ ┣ 📄 IniciativaTracker.jsx   # Tracker de iniciativa e controle de turnos
- ┃ ┃ ┣ 📄 Inventario.jsx          # Gerenciamento de inventário do personagem
- ┃ ┃ ┗ 📄 NovoPersonagem.jsx      # Modal de criação de personagem
- ┃ ┣ 📂 utils/
- ┃ ┃ ┗ 📄 ImagemEditada.js        # Utilitário de recorte de imagem via Canvas API
- ┃ ┣ 📄 App.js                    # Componente raiz com estado global e persistência
- ┃ ┗ 📄 index.js
- ┣ 📄 tailwind.config.js
- ┣ 📄 postcss.config.js
- ┗ 📄 package.json
+Crie uma sala pelo lobby ou entre com um código existente. Dentro da sala, clique em **Link** para copiar a URL de convite:
+
+```text
+https://seu-projeto.web.app/?sala=codigodasala
 ```
 
----
+Quem abrir o link entra diretamente na sala. Para o público, o mestre dispõe de um QR code que leva ao modo visitante.
 
-## 👤 Autor
+## Limitações conhecidas e próximos passos
+
+- Substituir os ícones padrão do Create React App por uma identidade visual própria.
+- As imagens são armazenadas comprimidas no próprio Firestore; para imagens maiores ou em maior quantidade, o ideal é migrar para o Firebase Storage.
+- O modo visitante é uma restrição apenas da interface: as regras do Firestore não distinguem visitantes. Para torná-lo uma restrição efetiva, é necessário refleti-lo em `firestore.rules`.
+- Ampliar a cobertura de testes para `App.js` e para os hooks; hoje os testes automatizados cobrem os utilitários, o painel do mestre e as regras do Firestore.
+- Extrair para hooks a edição da campanha (nome, capa, combate e papel de mestre), os NPCs e a lista de jogadores, que ainda estão em `App.js`.
+
+## Autor
 
 **Cauê F. Abreu**
 
-[![GitHub](https://img.shields.io/badge/GitHub-CaueFAbreu-181717?style=flat&logo=github)](https://github.com/CaueFAbreu)
-
----
-
-<p align="center">Feito com ☕, React e muitos dados de 20</p>
+[GitHub](https://github.com/CaueFAbreu)

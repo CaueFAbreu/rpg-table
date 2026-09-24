@@ -1,6 +1,9 @@
 import { useState } from "react";
 import EditorImagem from "./EditorImagem";
 import Inventario from "./Inventario";
+import AtaquesFixos from "./AtaquesFixos";
+import CondicoesRapidas from "./CondicoesRapidas";
+import { CORES_MARCADOR, corClasse, marcadoresDoPersonagem, validarMarcador } from "../utils/marcadores";
 
 function AvatarPlaceholder() {
   return (
@@ -58,14 +61,123 @@ function EditableField({ value, onSave, isOwner, type = "text", className = "" }
   );
 }
 
-function StatusBar({ label, current, max, colorClass, onChangeAmount, onEditCurrent, onEditMax, isOwner }) {
+function normalizarLinkFicha(valor) {
+  const limpo = String(valor ?? "").trim();
+  if (!limpo) return "";
+  if (/^https?:\/\//i.test(limpo)) return limpo;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(limpo)) return ""; // outro esquema (ex: javascript:) nao e aceito
+  return `https://${limpo}`;
+}
+
+function LinkFicha({ value, onSave }) {
+  const [editando, setEditando] = useState(false);
+  const [rascunho, setRascunho] = useState(value || "");
+
+  function salvar() {
+    setEditando(false);
+    onSave(normalizarLinkFicha(rascunho));
+  }
+
+  if (editando) {
+    return (
+      <input
+        value={rascunho}
+        onChange={(e) => setRascunho(e.target.value)}
+        onBlur={salvar}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") salvar();
+          if (e.key === "Escape") { setRascunho(value || ""); setEditando(false); }
+        }}
+        onClick={(e) => e.stopPropagation()}
+        placeholder="https://..."
+        autoFocus
+        className="w-44 rounded border border-[#b82870] bg-black/50 px-2 py-0.5 text-xs text-white outline-none"
+      />
+    );
+  }
+
+  return (
+    <div className="mt-1 flex items-center justify-center gap-1.5 text-xs">
+      {value ? (
+        <a
+          href={value}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="max-w-[160px] truncate text-gray-400 underline hover:text-[#f0a3ca]"
+        >
+          🔗 Ficha completa
+        </a>
+      ) : (
+        <span className="text-gray-600">Sem link da ficha completa</span>
+      )}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setRascunho(value || ""); setEditando(true); }}
+        title="Editar link da ficha completa"
+        className="text-gray-600 hover:text-gray-300"
+      >
+        ✎
+      </button>
+    </div>
+  );
+}
+
+function StatusBar({
+  label, current, max, colorClass, cor,
+  onChangeAmount, onEditCurrent, onEditMax, onRename, onChangeCor, onRemove,
+  isOwner
+}) {
+  const [editando, setEditando] = useState(false);
   const percent = Math.min(100, Math.max(0, (current / (max || 1)) * 100)) + "%";
 
   return (
     <div className="mb-4 w-full">
-      <div className="text-center font-bold text-gray-400 text-sm tracking-widest mb-1">
-        {label}
+      <div className="flex items-center justify-center gap-1 mb-1">
+        {editando ? (
+          <input
+            value={label}
+            onChange={(e) => onRename(e.target.value)}
+            onBlur={() => setEditando(false)}
+            onKeyDown={(e) => e.key === "Enter" && setEditando(false)}
+            autoFocus
+            className="w-28 bg-black/40 border border-[#b82870] rounded px-1 text-center text-sm font-bold tracking-widest text-white outline-none"
+          />
+        ) : (
+          <span className="text-center font-bold text-gray-400 text-sm tracking-widest">{label}</span>
+        )}
+        {isOwner && (
+          <button
+            type="button"
+            onClick={() => setEditando((v) => !v)}
+            title="Renomear, mudar cor ou remover"
+            className="text-gray-600 hover:text-gray-300 text-xs leading-none"
+          >
+            ⚙
+          </button>
+        )}
       </div>
+      {editando && (
+        <div className="mb-2 flex items-center justify-center gap-1.5">
+          {CORES_MARCADOR.map((c) => (
+            <button
+              key={c.valor}
+              type="button"
+              onClick={() => onChangeCor(c.valor)}
+              title={c.valor}
+              className={`h-4 w-4 rounded-full ${c.classe} ${cor === c.valor ? "ring-2 ring-white" : "opacity-60 hover:opacity-100"}`}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={onRemove}
+            title="Remover este marcador"
+            className="ml-1 rounded border border-red-500/40 px-1.5 text-[10px] font-bold text-red-300 hover:bg-red-500/10"
+          >
+            Remover
+          </button>
+        </div>
+      )}
       <div className="relative h-8 bg-black/40 border border-gray-600 flex items-center justify-between px-3 select-none">
         <div className={`absolute top-0 left-0 h-full ${colorClass} transition-all duration-300`} style={{ width: percent }}></div>
         <div className="relative z-10 flex gap-4 text-white font-bold cursor-pointer text-lg">
@@ -90,9 +202,12 @@ export default function CharacterCard({
   character,
   currentUser,
   isActive,
+  isMestre,
   onSelect,
   onUpdateCharacter,
-  onDeleteCharacter
+  onDeleteCharacter,
+  regraD20,
+  onRolarAtaque
 }) {
   const [isEditingImage, setIsEditingImage] = useState(false);
   const [tempImage, setTempImage] = useState(null);
@@ -123,12 +238,6 @@ export default function CharacterCard({
     }
   }
 
-  function changeStatAmount(statName, amount) {
-    if (!isOwner) return;
-    const newVal = Math.max(0, character[statName] + amount);
-    onUpdateCharacter({ ...character, [statName]: newVal });
-  }
-
   function handleDirectEdit(field, value) {
     if (!isOwner) return;
     onUpdateCharacter({ ...character, [field]: value });
@@ -136,6 +245,57 @@ export default function CharacterCard({
 
   function handleUpdateInventario(novosItens) {
     onUpdateCharacter({ ...character, inventario: novosItens });
+  }
+
+  const marcadores = marcadoresDoPersonagem(character);
+
+  function salvarMarcadores(lista) {
+    onUpdateCharacter({ ...character, marcadores: lista });
+  }
+
+  function changeMarcadorAmount(id, delta) {
+    if (!isOwner) return;
+    salvarMarcadores(marcadores.map((m) =>
+      m.id === id ? { ...m, atual: Math.min(m.max, Math.max(0, m.atual + delta)) } : m
+    ));
+  }
+
+  function editarMarcador(id, patch) {
+    if (!isOwner) return;
+    salvarMarcadores(marcadores.map((m) => {
+      if (m.id !== id) return m;
+      const validado = validarMarcador({ ...m, ...patch });
+      return validado.ok ? validado.marcador : m;
+    }));
+  }
+
+  function removerMarcador(id) {
+    if (!isOwner) return;
+    if (marcadores.length <= 1) {
+      alert("A ficha precisa de pelo menos um marcador.");
+      return;
+    }
+    if (!window.confirm("Remover este marcador?")) return;
+    salvarMarcadores(marcadores.filter((m) => m.id !== id));
+  }
+
+  function adicionarMarcador() {
+    if (!isOwner) return;
+    const cor = CORES_MARCADOR[marcadores.length % CORES_MARCADOR.length].valor;
+    const validado = validarMarcador({ nome: "Novo Marcador", max: 10, cor });
+    if (validado.ok) salvarMarcadores([...marcadores, validado.marcador]);
+  }
+
+  function handleSalvarAtaques(novaLista) {
+    onUpdateCharacter({ ...character, rollsFixos: novaLista });
+  }
+
+  function handleSalvarCondicoes(novaLista) {
+    onUpdateCharacter({ ...character, condicoes: novaLista });
+  }
+
+  function handleRolarAtaque(roll) {
+    return onRolarAtaque(character, roll);
   }
 
   return (
@@ -187,12 +347,33 @@ export default function CharacterCard({
             <p className="text-[#b82870]">
               <EditableField value={character.classe} onSave={(val) => handleDirectEdit("classe", val)} isOwner={isOwner} />
             </p>
+            {isOwner ? (
+              <LinkFicha value={character.linkFicha} onSave={(val) => handleDirectEdit("linkFicha", val)} />
+            ) : (
+              character.linkFicha && (
+                <a
+                  href={character.linkFicha}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1 inline-block text-xs text-gray-400 underline hover:text-[#f0a3ca]"
+                >
+                  🔗 Ficha completa
+                </a>
+              )
+            )}
           </div>
         </div>
 
+        <CondicoesRapidas
+          condicoes={character.condicoes || []}
+          podeEditar={isOwner || isMestre}
+          onChange={handleSalvarCondicoes}
+        />
+
         <div className="w-full mt-6 bg-black/40 p-4 rounded-lg border border-gray-700/50 font-sans cursor-default">
 
-          <div className="flex justify-between items-start mb-6 text-sm font-bold">
+          <div className="flex flex-wrap justify-between items-start gap-3 mb-6 text-sm font-bold">
             <div className="flex items-center gap-2">
               <span className="text-gray-400 tracking-widest text-xs">NEX</span>
               <div className="border border-[#b82870]/50 px-3 py-1 text-white bg-black/60">
@@ -213,11 +394,34 @@ export default function CharacterCard({
             </div>
           </div>
 
-          <StatusBar label="VIDA" current={character.vida} max={character.vidaMax || character.vida} colorClass="bg-[#b91c1c]" onChangeAmount={(val) => changeStatAmount("vida", val)} onEditCurrent={(val) => handleDirectEdit("vida", val)} onEditMax={(val) => handleDirectEdit("vidaMax", val)} isOwner={isOwner} />
-          <StatusBar label="SANIDADE" current={character.sanidade} max={character.sanidadeMax || character.sanidade} colorClass="bg-[#5a2c91]" onChangeAmount={(val) => changeStatAmount("sanidade", val)} onEditCurrent={(val) => handleDirectEdit("sanidade", val)} onEditMax={(val) => handleDirectEdit("sanidadeMax", val)} isOwner={isOwner} />
-          <StatusBar label="ESFORÇO" current={character.esforco} max={character.esforcoMax || character.esforco} colorClass="bg-[#f97316]" onChangeAmount={(val) => changeStatAmount("esforco", val)} onEditCurrent={(val) => handleDirectEdit("esforco", val)} onEditMax={(val) => handleDirectEdit("esforcoMax", val)} isOwner={isOwner} />
+          {marcadores.map((m) => (
+            <StatusBar
+              key={m.id}
+              label={m.nome}
+              current={m.atual}
+              max={m.max}
+              cor={m.cor}
+              colorClass={corClasse(m.cor)}
+              onChangeAmount={(val) => changeMarcadorAmount(m.id, val)}
+              onEditCurrent={(val) => editarMarcador(m.id, { atual: val })}
+              onEditMax={(val) => editarMarcador(m.id, { max: val })}
+              onRename={(val) => editarMarcador(m.id, { nome: val })}
+              onChangeCor={(cor) => editarMarcador(m.id, { cor })}
+              onRemove={() => removerMarcador(m.id)}
+              isOwner={isOwner}
+            />
+          ))}
+          {isOwner && (
+            <button
+              type="button"
+              onClick={adicionarMarcador}
+              className="mb-4 w-full rounded border border-dashed border-gray-600 py-1.5 text-xs font-bold text-gray-400 transition hover:border-[#b82870] hover:text-[#f0a3ca]"
+            >
+              + Marcador
+            </button>
+          )}
 
-          <div className="flex justify-between items-end mt-6">
+          <div className="flex flex-wrap justify-between items-end gap-3 mt-6">
             <div className="flex items-center gap-2">
               <div className="relative w-12 h-14 border-2 border-[#b82870] flex items-center justify-center rounded-b-[24px] bg-black/40">
                 <span className="text-xl font-bold text-white">
@@ -250,6 +454,15 @@ export default function CharacterCard({
             <Inventario
               itens={character.inventario || []}
               onUpdateInventario={handleUpdateInventario}
+            />
+          )}
+
+          {isOwner && (
+            <AtaquesFixos
+              rolls={character.rollsFixos || []}
+              regraD20={regraD20}
+              onSalvarRolls={handleSalvarAtaques}
+              onRolar={handleRolarAtaque}
             />
           )}
 

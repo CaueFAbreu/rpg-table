@@ -7,17 +7,23 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
+    "firebase": "^12.11.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-easy-crop": "^5.5.6",
     "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "qrcode": "^1.5.4"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:rules": "firebase deploy --only firestore:rules",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "test:rules": "firebase emulators:exec --only firestore \"jest --config jest.rules.config.js\""
   },
   "eslintConfig": {
     "extends": [
@@ -40,6 +46,13 @@
   "devDependencies": {
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.19"
+    "tailwindcss": "^3.4.19",
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "node-fetch": "^2.7.0"
+  },
+  "overrides": {
+    "@firebase/rules-unit-testing": {
+      "firebase": "$firebase"
+    }
   }
 }

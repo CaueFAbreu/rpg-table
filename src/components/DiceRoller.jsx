@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { rolarExpressao } from "../utils/dados";
+import { descreverRegraD20 } from "../utils/sistemas";
 
 const DADOS = [4, 6, 8, 10, 12, 20, 100];
 
 function DiceIcon({ tipo, size = 48 }) {
   const s = size;
-  const fill = "#b82870"; 
-  const stroke = "#e85fa4"; 
+  const fill = "#b82870";
+  const stroke = "#e85fa4";
 
   return (
     <svg width={s} height={s} viewBox="0 0 100 100">
@@ -17,14 +19,19 @@ function DiceIcon({ tipo, size = 48 }) {
   );
 }
 
-function DiceRoller({ onRoll }) {
+// `pedido` (opcional): { expressao, rotulo, chave } vindo de um atalho de ficha (ex.: clicar
+// numa pericia). Ao mudar, dispara a rolagem automaticamente com essa expressao.
+function DiceRoller({ onRoll, regraD20, pedido }) {
   const [expressao, setExpressao] = useState("1d20");
   const [resultadoFinal, setResultadoFinal] = useState(null);
   const [detalhesRolagem, setDetalhesRolagem] = useState("");
+  const [erro, setErro] = useState(null);
   const [rolando, setRolando] = useState(false);
   const [criticoFalha, setCriticoFalha] = useState(null);
+  const [rotuloAtual, setRotuloAtual] = useState(null);
 
   function adicionarDado(faces) {
+    setErro(null);
     setExpressao((prev) => {
       const text = prev.trim();
       if (!text) return `1d${faces}`;
@@ -32,105 +39,82 @@ function DiceRoller({ onRoll }) {
     });
   }
 
-  function rolarDados() {
-    if (!expressao.trim()) return;
+  function rolar(expressaoAlvo, rotulo) {
+    const texto = (expressaoAlvo ?? expressao).trim();
+    if (!texto || rolando) return;
+
     setRolando(true);
     setResultadoFinal(null);
     setDetalhesRolagem("");
+    setErro(null);
     setCriticoFalha(null);
+    setRotuloAtual(rotulo || null);
 
-    setTimeout(() => {
-      const limpo = expressao.replace(/\s+/g, "").toLowerCase();
-      const partes = limpo.replace(/-/g, "+-").split("+").filter(p => p !== "");
+    window.setTimeout(() => {
+      const resultado = rolarExpressao(texto, { regraD20 });
+      setRolando(false);
 
-      let total = 0;
-      let detalhes = [];
-      let isCritico = false;
-      let isFalha = false;
-
-      for (const parte of partes) {
-        let isNegativo = parte.startsWith("-");
-        const termoLimpo = parte.replace(/^[+-]/, "");
-
-        if (termoLimpo.includes("d")) {
-          const [qtdStr, facesStr] = termoLimpo.split("d");
-          const qtd = parseInt(qtdStr) || 1; 
-          const faces = parseInt(facesStr);
-
-          if (!faces) continue;
-
-          let valoresRolados = [];
-          for (let i = 0; i < qtd; i++) {
-            const r = Math.floor(Math.random() * faces) + 1;
-            valoresRolados.push(r);
-            
-            if (faces === 20 && r === 20) isCritico = true;
-            if (faces === 20 && r === 1) isFalha = true;
-          }
-
-          let valorFinal;
-          let detalheExtra = "";
-
-        if (faces === 20) {
-        // D20: pega apenas o maior valor
-        valorFinal = Math.max(...valoresRolados);
-        detalheExtra = ` → maior: ${valorFinal}`;
-        } else {
-        // Outros dados: soma normalmente
-        valorFinal = valoresRolados.reduce((a, b) => a + b, 0);
-        }
-
-total += isNegativo ? -valorFinal : valorFinal;
-
-const sinal = isNegativo ? "-" : "+";
-detalhes.push(`${sinal}${qtd}d${faces} [${valoresRolados.join(", ")}]${detalheExtra}`);
-        } 
-        else {
-          const valor = parseInt(termoLimpo);
-          if (!isNaN(valor)) {
-            total += isNegativo ? -valor : valor;
-            detalhes.push(`${isNegativo ? "-" : "+"}${valor}`);
-          }
-        }
+      if (!resultado.ok) {
+        setErro(resultado.erro);
+        return;
       }
 
-      const detalheTexto = detalhes.join(" ").replace(/^\+/, "").trim();
-
-      setResultadoFinal(total);
-      setDetalhesRolagem(detalheTexto);
-      
-      if (isCritico && !isFalha) setCriticoFalha("critico");
-      else if (isFalha && !isCritico) setCriticoFalha("falha");
-
-      setRolando(false);
+      setResultadoFinal(resultado.total);
+      setDetalhesRolagem(resultado.detalhe);
+      setCriticoFalha(resultado.criticoFalha);
 
       if (onRoll) {
         onRoll({
-          expressao: expressao,
-          resultado: total,
-          detalhe: detalheTexto,
-          criticoFalha: isCritico ? "critico" : isFalha ? "falha" : null,
-          timestamp: Date.now(),
+          expressao: texto,
+          rotulo: rotulo || null,
+          resultado: resultado.total,
+          detalhe: resultado.detalhe,
+          criticoFalha: resultado.criticoFalha,
+          timestamp: Date.now()
         });
       }
     }, 600);
   }
 
+  // Atalho de ficha: cada clique (mesmo repetindo a mesma pericia) manda uma `chave` nova,
+  // para o efeito disparar de novo mesmo com a mesma expressao.
+  useEffect(() => {
+    if (!pedido) return;
+    setExpressao(pedido.expressao);
+    rolar(pedido.expressao, pedido.rotulo);
+    // O efeito deve rodar so quando `pedido.chave` mudar (cada clique manda uma chave nova),
+    // nunca quando `expressao` muda por causa do proprio rolar() (isso causaria loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedido?.chave]);
+
   return (
-    <div className="bg-black/20 border border-[#b82870]/30 rounded-xl p-4 w-80">
-      <h3 className="text-white font-bold mb-3 text-center">🎲Dados🎲</h3>
+    <div className="bg-black/20 border border-[#b82870]/30 rounded-xl p-4 w-full">
+      <div className="mb-3 flex items-center justify-center gap-2">
+        <h3 className="text-white font-bold text-center">🎲Dados🎲</h3>
+        {regraD20 && (
+          <span
+            className="rounded border border-gray-600/50 px-1.5 py-0.5 text-[10px] uppercase tracking-widest text-gray-400"
+            title={`Regra do d20 desta mesa: ${descreverRegraD20(regraD20)}`}
+          >
+            {regraD20 === "maior" ? "d20 maior" : "d20 soma"}
+          </span>
+        )}
+      </div>
 
       <div className="flex gap-2 mb-3">
         <input
           type="text"
           value={expressao}
-          onChange={(e) => setExpressao(e.target.value)}
+          onChange={(e) => {
+            setExpressao(e.target.value);
+            setErro(null);
+          }}
           placeholder="Ex: 2d8 + 1d4 + 5"
           className="flex-1 bg-black/40 border border-gray-600/50 rounded px-3 py-2 text-white outline-none focus:border-[#b82870] font-mono text-sm"
-          onKeyDown={(e) => e.key === "Enter" && rolarDados()}
+          onKeyDown={(e) => e.key === "Enter" && rolar()}
         />
         <button
-          onClick={() => setExpressao("")}
+          onClick={() => { setExpressao(""); setErro(null); }}
           className="bg-black/40 hover:bg-[#b82870] text-gray-300 px-3 py-2 rounded font-bold transition-all"
           title="Limpar Expressão"
         >
@@ -151,7 +135,7 @@ detalhes.push(`${sinal}${qtd}d${faces} [${valoresRolados.join(", ")}]${detalheEx
       </div>
 
       <button
-        onClick={rolarDados}
+        onClick={() => rolar()}
         disabled={rolando}
         className="w-full bg-[#b82870] hover:bg-[#9a205d] disabled:opacity-50 text-white font-bold py-3 rounded-lg mb-4 transition-all shadow-lg shadow-[#b82870]/20"
       >
@@ -163,14 +147,19 @@ detalhes.push(`${sinal}${qtd}d${faces} [${valoresRolados.join(", ")}]${detalheEx
           <div className="animate-spin">
             <DiceIcon tipo={20} size={48} />
           </div>
+        ) : erro ? (
+          <span className="text-red-400 text-xs text-center px-2">{erro}</span>
         ) : resultadoFinal !== null ? (
           <>
+            {rotuloAtual && (
+              <div className="text-[#f0a3ca] text-xs font-bold mb-0.5 text-center">{rotuloAtual}</div>
+            )}
             <div className="text-gray-400 text-xs mb-1 font-mono text-center break-words w-full">
               {detalhesRolagem}
             </div>
             <div className={`text-4xl font-bold ${
-              criticoFalha === "critico" ? "text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]" 
-              : criticoFalha === "falha" ? "text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]" 
+              criticoFalha === "critico" ? "text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.5)]"
+              : criticoFalha === "falha" ? "text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]"
               : "text-white"
             }`}>
               {resultadoFinal}
